@@ -7,6 +7,9 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
@@ -19,9 +22,30 @@ kotlin {
     jvm()
     
     sourceSets {
+        all {
+            languageSettings.optIn("kotlin.time.ExperimentalTime")
+        }
         androidMain.dependencies {
             implementation(compose.preview)
             implementation(libs.androidx.activity.compose)
+
+            // Koin Android specific
+            //implementation(libs.koin.android)
+
+            // SQLDelight Android driver
+            implementation(libs.sqldelight.android)
+
+            // Ktor Android engine
+            implementation(libs.ktor.client.okhttp)
+            implementation(libs.ktor.server.netty)
+
+            // Android security/crypto
+            implementation(libs.androidx.security.crypto)
+
+            // Coroutines Android
+            implementation(libs.kotlinx.coroutines.android)
+
+
         }
         commonMain.dependencies {
             implementation(compose.runtime)
@@ -34,6 +58,37 @@ kotlin {
             implementation(libs.androidx.lifecycle.runtimeCompose)
 
             implementation(libs.koin.core)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
+            implementation(libs.koin.compose.viewmodel.navigation)
+
+            implementation(libs.navigation.compose)
+
+
+            // Serialization
+            implementation(libs.kotlinx.serialization.json)
+
+            // SQLDelight - common runtime
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutines)
+
+            // Coroutines
+            implementation(libs.kotlinx.coroutines.core)
+
+            // Ktor - WebSocket client/server (common)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.websockets)
+            implementation(libs.ktor.server.core)
+            implementation(libs.ktor.server.websockets)
+            implementation(libs.ktor.serialization)
+
+            // DateTime
+            implementation(libs.kotlinx.datetime)
+
+
+
+
+
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
@@ -41,7 +96,15 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
-            implementation(libs.kotlinx.coroutinesSwing)
+            // SQLDelight JVM driver
+            implementation(libs.sqldelight.jvm)
+
+            // Ktor Desktop engine
+            implementation(libs.ktor.client.okhttp)
+           // implementation(libs.ktor.server.netty)
+
+            // Coroutines Swing (for Desktop UI)
+            implementation(libs.kotlinx.coroutines.swing)
 
         }
     }
@@ -61,6 +124,10 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            //excludes += "/META-INF/INDEX.LIST"
+        }
+        configurations.all {
+            exclude(group = "io.netty")
         }
     }
     buildTypes {
@@ -86,6 +153,17 @@ compose.desktop {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "com.abdat.clipwhisper"
             packageVersion = "1.0.0"
+        }
+    }
+}
+
+// SQLDelight configuration
+sqldelight {
+    databases {
+        create("ClipWhisperDatabase") {
+            packageName.set("com.abdat.clipwhisper.db")
+            schemaOutputDirectory.set(file("src/commonMain/sqldelight/databases"))
+            verifyMigrations.set(true)
         }
     }
 }
