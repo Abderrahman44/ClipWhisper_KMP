@@ -15,16 +15,19 @@ junit = "4.13.2"
 kotlin = "2.2.21"
 
 koin = "4.2.0-alpha3"
+localbroadcastmanager = "1.1.0"
 navigationCompose = "2.9.1"
 ktor = "3.3.3"
 sqldelight = "2.2.1"
 coroutines = "1.10.2"
 serialization = "1.9.0"
 datetime = "0.7.1"
+ui = "1.10.0"
 
 
 
 [libraries]
+androidx-localbroadcastmanager = { module = "androidx.localbroadcastmanager:localbroadcastmanager", version.ref = "localbroadcastmanager" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
 kotlin-testJunit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin" }
 junit = { module = "junit:junit", version.ref = "junit" }
@@ -85,6 +88,7 @@ androidx-security-crypto = { module = "androidx.security:security-crypto", versi
 
 # Compose BOM
 androidx-compose-bom = { module = "androidx.compose:compose-bom", version = "2025.12.00" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 
 
 [plugins]

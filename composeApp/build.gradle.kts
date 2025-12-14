@@ -45,6 +45,8 @@ kotlin {
             // Coroutines Android
             implementation(libs.kotlinx.coroutines.android)
 
+            implementation("androidx.compose.material:material-icons-extended:1.5.4")
+
 
         }
         commonMain.dependencies {
@@ -84,6 +86,7 @@ kotlin {
 
             // DateTime
             implementation(libs.kotlinx.datetime)
+
 
 
 
