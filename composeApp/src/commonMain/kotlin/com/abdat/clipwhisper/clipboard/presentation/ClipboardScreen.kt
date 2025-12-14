@@ -1,21 +1,23 @@
 package com.abdat.clipwhisper.clipboard.presentation
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,370 +26,295 @@ fun ClipboardScreen(
     viewModel: ClipboardViewModel = koinInject()
 ) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
-    CurrentClipboardDisplay(
-        clipboardText = state.currentClipboard,
-        isListening = state.isListening
-    )
-
-    // Auto-clear status message after 3 seconds
+    // Show status as snackbar (modern & non-blocking)
     LaunchedEffect(state.statusMessage) {
-        if (state.statusMessage.isNotEmpty()) {
-            delay(3000)
-            viewModel.clearStatus()
+        if (state.statusMessage.isNotBlank()) {
+            scope.launch {
+                snackbarHostState.showSnackbar(
+                    message = state.statusMessage,
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Short
+                )
+                viewModel.clearStatus()
+            }
         }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = {
-                    Text(
-                        "Clipboard Manager",
-                        style = MaterialTheme.typography.headlineSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+                title = { Text("ClipWhisper") },
+                actions = {
+                    IconButton(onClick = viewModel::getClipboard) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh clipboard")
+                    }
+                }
+            )
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            BottomActionBar(
+                inputText = state.inputText,
+                isListening = state.isListening,
+                onSetClipboard = viewModel::setClipboard,
+                onToggleListener = viewModel::toggleListener
             )
         }
-    ) { paddingValues ->
-        Column(
+    ) { padding ->
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(padding),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Info Card about auto-fetch
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer
+
+            item {
+                CurrentClipboardCard(
+                    clipboardText = state.currentClipboard,
+                    isListening = state.isListening,
+                    onCopy = {
+                        if (state.currentClipboard.isNotBlank()) {
+                            viewModel.copyFromHistory(state.currentClipboard)
+                        }
+                    }
                 )
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("💡", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        text = "Clipboard content is automatically loaded when you open or return to the app",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSecondaryContainer
+            }
+
+            item {
+                InputCard(
+                    value = state.inputText,
+                    onValueChange = viewModel::updateInputText
+                )
+            }
+
+            item {
+                HistoryHeader(
+                    count = state.history.size,
+                    max = 10,
+                    onClear = viewModel::clearHistory,
+                    enabled = state.history.isNotEmpty()
+                )
+            }
+
+            if (state.history.isEmpty()) {
+                item {
+                    EmptyHistoryHint()
+                }
+            } else {
+                items(state.history, key = { it }) { text ->
+                    HistoryRow(
+                        text = text,
+                        onCopy = { viewModel.copyFromHistory(text) }
                     )
                 }
             }
 
-            // Status Message
-            if (state.statusMessage.isNotEmpty()) {
-                StatusBanner(message = state.statusMessage)
+            item { Spacer(Modifier.height(72.dp)) } // space for bottom bar
+        }
+    }
+}
+
+@Composable
+private fun CurrentClipboardCard(
+    clipboardText: String,
+    isListening: Boolean,
+    onCopy: () -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = "Current clipboard",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                AssistChip(
+                    onClick = { /* read-only */ },
+                    label = { Text(if (isListening) "Listening" else "Idle") },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            contentDescription = null
+                        )
+                    },
+                    enabled = false
+                )
             }
 
-            // Input Section
-            InputSection(
-                inputText = state.inputText,
-                onInputChange = viewModel::updateInputText,
-                onSetClipboard = viewModel::setClipboard
+            Text(
+                text = if (clipboardText.isBlank()) "Nothing yet — tap Refresh or start listening."
+                else clipboardText,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 6,
+                overflow = TextOverflow.Ellipsis
             )
 
-            // Action Buttons
-            ActionButtons(
-                isListening = state.isListening,
-                onGetClipboard = viewModel::getClipboard,
-                onToggleListener = viewModel::toggleListener
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onCopy, enabled = clipboardText.isNotBlank()) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Copy")
+                }
+            }
+        }
+    }
+}
 
-            // Current Clipboard Display
-            CurrentClipboardDisplay(clipboardText = state.currentClipboard)
+@Composable
+private fun InputCard(
+    value: String,
+    onValueChange: (String) -> Unit
+) {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Set clipboard", style = MaterialTheme.typography.titleMedium)
 
-            // History Section
-            HistorySection(
-                history = state.history,
-                onCopyFromHistory = viewModel::copyFromHistory,
-                onClearHistory = viewModel::clearHistory
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Type something to copy…") },
+                minLines = 2,
+                maxLines = 5,
+                shape = RoundedCornerShape(14.dp)
             )
         }
     }
 }
 
 @Composable
-fun StatusBanner(message: String) {
+private fun BottomActionBar(
+    inputText: String,
+    isListening: Boolean,
+    onSetClipboard: () -> Unit,
+    onToggleListener: () -> Unit
+) {
     Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = when {
-            message.contains("✅") || message.contains("📋") -> Color(0xFF4CAF50).copy(alpha = 0.2f)
-            message.contains("❌") -> Color(0xFFF44336).copy(alpha = 0.2f)
-            else -> MaterialTheme.colorScheme.secondaryContainer
+        tonalElevation = 3.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Button(
+                onClick = onSetClipboard,
+                modifier = Modifier.weight(1f),
+                enabled = inputText.isNotBlank(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(Icons.Default.ContentCopy, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Set")
+            }
+
+            OutlinedButton(
+                onClick = onToggleListener,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Icon(
+                    imageVector = if (isListening) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = null
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (isListening) "Stop" else "Listen")
+            }
         }
+    }
+}
+
+@Composable
+private fun HistoryHeader(
+    count: Int,
+    max: Int,
+    onClear: () -> Unit,
+    enabled: Boolean
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = message,
-            modifier = Modifier.padding(12.dp),
+            text = "History",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = "$count/$max",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.weight(1f))
+        IconButton(onClick = onClear, enabled = enabled) {
+            Icon(Icons.Default.DeleteOutline, contentDescription = "Clear history")
+        }
+    }
+}
+
+@Composable
+private fun EmptyHistoryHint() {
+    ElevatedCard(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp)
+    ) {
+        Text(
+            text = "No history yet. Copy something and it will appear here.",
+            modifier = Modifier.padding(16.dp),
             style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSecondaryContainer
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
 
 @Composable
-fun InputSection(
-    inputText: String,
-    onInputChange: (String) -> Unit,
-    onSetClipboard: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                text = "Set Clipboard",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            OutlinedTextField(
-                value = inputText,
-                onValueChange = onInputChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Enter text to copy") },
-                placeholder = { Text("Type something...") },
-                minLines = 3,
-                maxLines = 5,
-                shape = RoundedCornerShape(8.dp)
-            )
-
-            Button(
-                onClick = onSetClipboard,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = inputText.isNotBlank()
-            ) {
-                Text("📋 Set to Clipboard", style = MaterialTheme.typography.bodyLarge)
-            }
-        }
-    }
-}
-
-@Composable
-fun ActionButtons(
-    isListening: Boolean,
-    onGetClipboard: () -> Unit,
-    onToggleListener: () -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OutlinedButton(
-            onClick = onGetClipboard,
-            modifier = Modifier.weight(1f)
-        ) {
-            Text("📥 Refresh")
-        }
-
-        Button(
-            onClick = onToggleListener,
-            modifier = Modifier.weight(1f),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = if (isListening)
-                    MaterialTheme.colorScheme.error
-                else
-                    MaterialTheme.colorScheme.secondary
-            )
-        ) {
-            Text(
-                text = if (isListening) "🔇 Stop Auto-detect" else "🎧 Auto-detect Changes",
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
-@Composable
-fun CurrentClipboardDisplay(
-    clipboardText: String,
-    isListening: Boolean = false
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isListening)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.tertiaryContainer
-        ),
-        border = if (isListening)
-            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-        else
-            null
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Current Clipboard Content",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isListening)
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    else
-                        MaterialTheme.colorScheme.onTertiaryContainer
-                )
-
-                if (isListening) {
-                    // Animated pulse indicator
-                    Box(
-                        modifier = Modifier
-                            .size(12.dp)
-                            .background(
-                                MaterialTheme.colorScheme.primary,
-                                shape = androidx.compose.foundation.shape.CircleShape
-                            )
-                    )
-                }
-            }
-
-            if (clipboardText.isEmpty()) {
-                Text(
-                    text = if (isListening)
-                        "Waiting for clipboard changes..."
-                    else
-                        "No content yet...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (isListening)
-                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
-                    else
-                        MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.6f),
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                )
-            } else {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surface
-                ) {
-                    Text(
-                        text = clipboardText,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 5,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun HistorySection(
-    history: List<String>,
-    onCopyFromHistory: (String) -> Unit,
-    onClearHistory: () -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "History (${history.size}/10)",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-
-                if (history.isNotEmpty()) {
-                    TextButton(onClick = onClearHistory) {
-                        Text("🗑️ Clear")
-                    }
-                }
-            }
-
-            if (history.isEmpty()) {
-                Text(
-                    text = "No history yet. Copy something to see it here!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 300.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(history) { item ->
-                        HistoryItem(
-                            text = item,
-                            onClick = { onCopyFromHistory(item) }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-fun HistoryItem(
+private fun HistoryRow(
     text: String,
-    onClick: () -> Unit
+    onCopy: () -> Unit
 ) {
-    Surface(
+    ElevatedCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp
+            .clickable(onClick = onCopy),
+        shape = RoundedCornerShape(16.dp)
     ) {
         Row(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "📄",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
                 text = text,
                 modifier = Modifier.weight(1f),
-                style = MaterialTheme.typography.bodyMedium,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium
             )
-            Text(
-                text = "→",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
+            IconButton(onClick = onCopy) {
+                Icon(Icons.Default.ContentCopy, contentDescription = "Copy item")
+            }
         }
     }
 }

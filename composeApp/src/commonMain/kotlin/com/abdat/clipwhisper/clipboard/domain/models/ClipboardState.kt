@@ -1,6 +1,9 @@
 package com.abdat.clipwhisper.clipboard.domain.models
 
+import kotlinx.serialization.Serializable
 
+
+@Serializable
 data class ClipboardState(
     val currentClipboard: String = "",
     val inputText: String = "",

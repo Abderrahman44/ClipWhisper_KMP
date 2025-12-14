@@ -4,6 +4,7 @@ package com.abdat.clipwhisper.clipboard.presentation
 import androidx.lifecycle.ViewModel
 import com.abdat.clipwhisper.clipboard.domain.ClipboardListener
 import com.abdat.clipwhisper.clipboard.domain.ClipboardManager
+import com.abdat.clipwhisper.clipboard.domain.ClipboardRepository
 import com.abdat.clipwhisper.clipboard.domain.models.ClipboardState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -20,15 +21,29 @@ import kotlinx.coroutines.launch
 
 
 class ClipboardViewModel(
-    private val clipboardManager: ClipboardManager
-): ViewModel() {
+    private val clipboardManager: ClipboardManager,
+    private val repo: ClipboardRepository,
+    private val originDeviceId: String,
+    private val nowMillis: () -> Long = { System.currentTimeMillis() }
+): ViewModel()
+{
     private val _state = MutableStateFlow(ClipboardState())
     val state: StateFlow<ClipboardState> = _state.asStateFlow()
-
     private var listener: ClipboardListener? = null
     private val viewModelScope = CoroutineScope(Dispatchers.Main)
     private var pollingJob: Job? = null
     private var lastClipboardContent: String? = null
+
+    init {
+        // Keep UI history in sync with DB
+        viewModelScope.launch {
+            repo.observeRecent(limit = 10).collect { items ->
+                _state.value = _state.value.copy(
+                    history = items.map { it.payload }
+                )
+            }
+        }
+    }
 
     // Auto-fetch clipboard on initialization
     fun autoFetchClipboard() {
@@ -165,11 +180,17 @@ class ClipboardViewModel(
         }
     }
 
-    fun clearHistory() {
+    /*fun clearHistory() {
         _state.value = _state.value.copy(
             history = emptyList(),
             statusMessage = "🗑️ History cleared"
         )
+    }*/
+    fun clearHistory() {
+        viewModelScope.launch {
+            repo.clearAll()
+            _state.value = _state.value.copy(statusMessage = "🗑️ History cleared")
+        }
     }
 
     fun copyFromHistory(text: String) {
@@ -183,7 +204,7 @@ class ClipboardViewModel(
         }
     }
 
-    private fun addToHistory(text: String) {
+    /*private fun addToHistory(text: String) {
         val currentHistory = _state.value.history.toMutableList()
         // Don't add if it's already the most recent
         if (currentHistory.firstOrNull() == text) {
@@ -198,6 +219,17 @@ class ClipboardViewModel(
             currentHistory.removeAt(currentHistory.lastIndex)
         }
         _state.value = _state.value.copy(history = currentHistory)
+    }*/
+
+    private fun addToHistory(text: String) {
+        viewModelScope.launch {
+            repo.addToHistory(
+                text = text,
+                originDeviceId = originDeviceId,
+                nowMillis = nowMillis(),
+                keepMax = 10
+            )
+        }
     }
 
     fun clearStatus() {

@@ -7,12 +7,10 @@ import org.koin.dsl.module
 
 actual val platformModuleDataBase = module {
 
-    /*single<DatabaseDriverFactory> {
-        DesktopDatabaseDriverFactory()
-    }*/
+    single { DatabaseDriverFactory() }
     single { ClipboardManager() }
 }
 
 actual val ViewModelModules: Module = module {
-    single { ClipboardViewModel(get()) }
+    single { ClipboardViewModel(get(),get(),"desktop-device-123") }
 }
