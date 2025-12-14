@@ -45,7 +45,7 @@ kotlin {
             // Coroutines Android
             implementation(libs.kotlinx.coroutines.android)
 
-            implementation("androidx.compose.material:material-icons-extended:1.5.4")
+            //implementation(libs.androidx.compose.material.icons.extended)
 
 
         }
@@ -87,10 +87,10 @@ kotlin {
             // DateTime
             implementation(libs.kotlinx.datetime)
 
+            implementation(libs.material.icons.core)
 
-
-
-
+            // Add this only if some icons are still missing
+            implementation(compose.materialIconsExtended)
 
         }
         commonTest.dependencies {
