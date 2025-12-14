@@ -1,0 +1,71 @@
+import kotlin.Boolean;
+
+CREATE TABLE clipboard_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    type TEXT NOT NULL,
+    created_at_millis INTEGER NOT NULL,
+    expires_at_millis INTEGER,
+    pinned INTEGER AS Boolean NOT NULL DEFAULT 0,
+    origin_device_id TEXT NOT NULL,
+    payload TEXT NOT NULL
+);
+
+CREATE INDEX idx_clipboard_created_at ON clipboard_items(created_at_millis DESC);
+CREATE INDEX idx_clipboard_expires_at ON clipboard_items(expires_at_millis);
+CREATE INDEX idx_clipboard_pinned ON clipboard_items(pinned);
+
+-- Insert
+insertItem:
+INSERT INTO clipboard_items (
+  type, created_at_millis, expires_at_millis, pinned, origin_device_id, payload
+) VALUES (?, ?, ?, ?, ?, ?);
+
+lastInsertRowId:
+SELECT last_insert_rowid();
+
+-- Read
+getAllItems:
+SELECT * FROM clipboard_items
+ORDER BY created_at_millis DESC;
+
+getRecentItems:
+SELECT * FROM clipboard_items
+ORDER BY created_at_millis DESC
+LIMIT ?;
+
+getNonExpiredItems:
+SELECT * FROM clipboard_items
+WHERE expires_at_millis IS NULL
+   OR expires_at_millis > ?
+   OR pinned = 1
+ORDER BY created_at_millis DESC;
+
+getPinnedItems:
+SELECT * FROM clipboard_items
+WHERE pinned = 1
+ORDER BY created_at_millis DESC;
+
+-- Update
+updatePinned:
+UPDATE clipboard_items SET pinned = ? WHERE id = ?;
+
+-- Maintenance helpers (optional but useful for “history” behavior)
+deleteByPayload:
+DELETE FROM clipboard_items WHERE payload = ?;
+
+deleteKeepNewestN:
+DELETE FROM clipboard_items
+WHERE id NOT IN (
+  SELECT id FROM clipboard_items
+  ORDER BY created_at_millis DESC
+  LIMIT ?
+);
+
+deleteExpired:
+DELETE FROM clipboard_items
+WHERE expires_at_millis IS NOT NULL
+  AND expires_at_millis <= ?
+  AND pinned = 0;
+
+deleteAllItems:
+DELETE FROM clipboard_items;
