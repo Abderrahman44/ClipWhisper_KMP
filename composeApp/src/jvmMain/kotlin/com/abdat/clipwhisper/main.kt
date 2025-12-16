@@ -1,24 +1,20 @@
 package com.abdat.clipwhisper
 
-import androidx.compose.foundation.layout.Column
-import androidx.compose.material3.Button
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Typography
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
-import com.abdat.clipwhisper.clipboard.domain.ClipboardManager
-import com.abdat.clipwhisper.clipboard.presentation.ClipboardScreen
 import com.abdat.clipwhisper.core.di.ViewModelModules
 import com.abdat.clipwhisper.core.di.initKoin
 import com.abdat.clipwhisper.core.di.platformModuleDataBase
 import com.abdat.clipwhisper.core.di.sharedDBModules
-import org.koin.compose.koinInject
+import com.abdat.clipwhisper.network.di.NetworkModule
+import com.abdat.clipwhisper.network.di.sharedNetworkModule
 
 fun main() {
     application {
@@ -26,7 +22,9 @@ fun main() {
                 modules(
                     platformModuleDataBase,
                     sharedDBModules,
-                    ViewModelModules
+                    ViewModelModules,
+                    NetworkModule,
+                    sharedNetworkModule
                 )
 
         }
@@ -35,7 +33,33 @@ fun main() {
             onCloseRequest = ::exitApplication,
             title = "ClipWhisper",
         ) {
-            ClipboardScreen( )
+           // ClipboardScreen( )
+            DesktopTheme {
+                Surface(
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    //DeviceDiscoveryScreen()
+                    App()
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun DesktopTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    content: @Composable () -> Unit
+) {
+    val colorScheme = if (darkTheme) {
+        darkColorScheme()
+    } else {
+        lightColorScheme()
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography(),
+        content = content
+    )
 }
