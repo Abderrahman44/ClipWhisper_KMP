@@ -5,6 +5,8 @@ import com.abdat.clipwhisper.core.di.ViewModelModules
 import com.abdat.clipwhisper.core.di.initKoin
 import com.abdat.clipwhisper.core.di.platformModuleDataBase
 import com.abdat.clipwhisper.core.di.sharedDBModules
+import com.abdat.clipwhisper.network.di.NetworkModule
+import com.abdat.clipwhisper.network.di.sharedNetworkModule
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 
@@ -18,7 +20,9 @@ class ClipWhisperApp :  Application() {
             modules(
                 platformModuleDataBase,
                 sharedDBModules,
-                ViewModelModules
+                ViewModelModules,
+                NetworkModule,
+                sharedNetworkModule
 
             )
         }
