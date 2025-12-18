@@ -66,6 +66,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.abdat.clipwhisper.network.domain.model.Device
+import com.abdat.clipwhisper.network.domain.model.IncomingPairRequest
+import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
+import com.abdat.clipwhisper.network.domain.model.OutgoingPairStatus
 import org.koin.compose.koinInject
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,15 +81,36 @@ fun DeviceDiscoveryScreen(
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
     val pairedDevices by viewModel.pairedDevices.collectAsStateWithLifecycle()
     val unpairedDevices by viewModel.unpairededDevices.collectAsStateWithLifecycle()
+    val incomingRequests by viewModel.incomingPairRequests.collectAsStateWithLifecycle()
+    val outgoingRequests by viewModel.outgoingPairRequests.collectAsStateWithLifecycle()
+
 
     // Handle dialogs
     if (uiState.showPairDialog && uiState.selectedDevice != null) {
         PairDeviceDialog(
             device = uiState.selectedDevice!!,
-            onConfirm = { viewModel.pairDevice(uiState.selectedDevice!!) },
+            onConfirm = { viewModel.requestPairing(uiState.selectedDevice!!) },
             onDismiss = { viewModel.dismissPairDialog() }
         )
     }
+    // Receiver side: incoming request dialog (show first pending)
+    incomingRequests.firstOrNull()?.let { req ->
+        IncomingPairRequestDialog(
+            req = req,
+            onAccept = { viewModel.acceptIncomingPair(req.requestId) },
+            onReject = { viewModel.rejectIncomingPair(req.requestId) }
+        )
+    }
+
+// Initiator side: two-way confirm after remote accepts
+    outgoingRequests.firstOrNull { it.status == OutgoingPairStatus.WAITING_LOCAL_CONFIRM }?.let { req ->
+        ConfirmOutgoingPairDialog(
+            req = req,
+            onConfirm = { viewModel.confirmOutgoingPair(req.requestId) },
+            onCancel = { viewModel.cancelOutgoingPair(req.requestId) }
+        )
+    }
+
 
     if (uiState.showUnpairDialog && uiState.selectedDevice != null) {
         UnpairDeviceDialog(
@@ -247,10 +271,9 @@ fun DeviceDiscoveryScreen(
     }
 
     DisposableEffect(Unit) {
-        onDispose {
-            viewModel.onDispose()
-        }
+        onDispose { viewModel.onCleared() }
     }
+
 }
 
 @Composable
@@ -651,6 +674,59 @@ private fun UnpairDeviceDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
+        }
+    )
+}
+@Composable
+private fun IncomingPairRequestDialog(
+    req: IncomingPairRequest,
+    onAccept: () -> Unit,
+    onReject: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onReject,
+        icon = { Icon(Icons.Default.Link, contentDescription = null) },
+        title = { Text("Pair request") },
+        text = {
+            Column {
+                Text("A device wants to pair with you:")
+                Spacer(Modifier.height(8.dp))
+                Text("• Name: ${req.fromDeviceName}")
+                Text("• Id: ${req.fromDeviceId}")
+                Text("• From: ${req.fromAddress}")
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onAccept) { Text("Accept") }
+        },
+        dismissButton = {
+            TextButton(onClick = onReject) { Text("Reject") }
+        }
+    )
+}
+
+@Composable
+private fun ConfirmOutgoingPairDialog(
+    req: OutgoingPairRequest,
+    onConfirm: () -> Unit,
+    onCancel: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onCancel,
+        icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
+        title = { Text("Confirm pairing") },
+        text = {
+            Column {
+                Text("${req.toDeviceName} accepted your request.")
+                Spacer(Modifier.height(8.dp))
+                Text("Confirm on this device to finish (two-way approval).")
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = onConfirm) { Text("Confirm") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("Cancel") }
         }
     )
 }
