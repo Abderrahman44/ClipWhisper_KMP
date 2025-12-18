@@ -12,13 +12,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.Inet4Address
@@ -30,7 +32,12 @@ import java.util.concurrent.ConcurrentHashMap
 actual class DeviceDiscovery actual constructor(
     private val pairedStore: PairedDeviceStore
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val startStopMutex = Mutex()
+
+    private var runJob: Job? = null
+    private var socket: DatagramSocket? = null
+
+    private val devices = ConcurrentHashMap<String, Device>()
 
     private val _discoveredDevices = MutableStateFlow<List<Device>>(emptyList())
     actual val discoveredDevices: StateFlow<List<Device>> = _discoveredDevices.asStateFlow()
@@ -38,54 +45,56 @@ actual class DeviceDiscovery actual constructor(
     private val _isRunning = MutableStateFlow(false)
     actual val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
 
-    private val devices = ConcurrentHashMap<String, Device>()
-
-    private var socket: DatagramSocket? = null
-    private var jobs = mutableListOf<Job>()
-
     private var selfId: String = ""
     private var selfName: String = ""
     private var selfPort: Int = 0
 
+    private var broadcastAddresses: List<InetAddress> = emptyList()
+
     actual suspend fun start(deviceId: String, deviceName: String, port: Int) {
-        if (_isRunning.value) {
-            stop()
-        }
+        startStopMutex.withLock {
+            if (_isRunning.value) stopInternal()
 
-        selfId = deviceId
-        selfName = deviceName
-        selfPort = port
+            selfId = deviceId
+            selfName = deviceName
+            selfPort = port
 
-        try {
-            socket = DatagramSocket(DISCOVERY_PORT).apply {
-                broadcast = true
-                reuseAddress = true
-                soTimeout = SOCKET_TIMEOUT_MS
-            }
-
-            _isRunning.value = true
-
-            jobs += scope.launch {
-                pairedStore.approvedIds.collect { approved ->
-                    updateApprovalStatus(approved)
+            try {
+                socket = DatagramSocket(DISCOVERY_PORT).apply {
+                    broadcast = true
+                    reuseAddress = true
+                    soTimeout = SOCKET_TIMEOUT_MS
                 }
+
+                broadcastAddresses = getBroadcastAddresses()
+                _isRunning.value = true
+
+                runJob = CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                    launch {
+                        pairedStore.approvedIds.collect { approved ->
+                            updateApprovalStatus(approved)
+                        }
+                    }
+                    launch { broadcastLoop() }
+                    launch { listenLoop() }
+                    launch { cleanupLoop() }
+                }
+            } catch (e: Exception) {
+                handleError("Failed to start discovery", e)
+                stopInternal()
             }
-
-            jobs += scope.launch { broadcastLoop() }
-            jobs += scope.launch { listenLoop() }
-            jobs += scope.launch { cleanupLoop() }
-
-        } catch (e: Exception) {
-            println("Failed to start discovery: ${e.message}")
-            stop()
         }
     }
 
     actual fun stop() {
+        stopInternal()
+    }
+
+    private fun stopInternal() {
         _isRunning.value = false
 
-        jobs.forEach { it.cancel() }
-        jobs.clear()
+        runJob?.cancel()
+        runJob = null
 
         socket?.close()
         socket = null
@@ -97,35 +106,27 @@ actual class DeviceDiscovery actual constructor(
     private fun getBroadcastAddresses(): List<InetAddress> {
         val addresses = mutableListOf<InetAddress>()
 
-        try {
+        runCatching {
             NetworkInterface.getNetworkInterfaces()?.toList()?.forEach { nif ->
                 if (nif.isUp && !nif.isLoopback) {
                     nif.interfaceAddresses.forEach { ia ->
-                        ia.broadcast?.let { broadcast ->
-                            if (broadcast is Inet4Address) {
-                                addresses.add(broadcast)
-                            }
-                        }
+                        val b = ia.broadcast
+                        if (b is Inet4Address) addresses += b
                     }
                 }
             }
-        } catch (e: Exception) {
-            println("Error getting broadcast addresses: ${e.message}")
-        }
+        }.onFailure { handleError("Failed to get broadcast addresses", it as Exception) }
 
         if (addresses.isEmpty()) {
-            try {
-                addresses.add(InetAddress.getByName("255.255.255.255"))
-            } catch (e: Exception) {
-                println("Error adding fallback broadcast: ${e.message}")
-            }
+            runCatching { addresses += InetAddress.getByName("255.255.255.255") }
+                .onFailure { handleError("Failed to add fallback broadcast", it as Exception) }
         }
 
         return addresses.distinct()
     }
 
-    private suspend fun broadcastLoop() = coroutineScope {
-        val s = socket ?: return@coroutineScope
+    private suspend fun broadcastLoop() {
+        val s = socket ?: return
 
         val packet = LanPacket(
             type = LanPacket.PacketType.DISCOVER,
@@ -134,56 +135,52 @@ actual class DeviceDiscovery actual constructor(
             port = selfPort
         )
 
-        while (isActive && _isRunning.value) {
-            try {
-                val packetBytes = LanJson.encodeToString(
-                    LanPacket.serializer(),
-                    packet
-                ).encodeToByteArray()
+        while (currentCoroutineContext().isActive && _isRunning.value) {
+            val payload = runCatching {
+                LanJson.encodeToString(LanPacket.serializer(), packet).encodeToByteArray()
+            }.getOrElse {
+                handleError("Broadcast encode error", it as Exception)
+                delay(DISCOVER_INTERVAL_MS)
+                continue
+            }
 
-                getBroadcastAddresses().forEach { addr ->
-                    try {
-                        val datagram = DatagramPacket(
-                            packetBytes,
-                            packetBytes.size,
-                            addr,
-                            DISCOVERY_PORT
-                        )
-                        s.send(datagram)
-                    } catch (e: Exception) {
-                        // Ignore send failures
-                    }
+            for (addr in broadcastAddresses) {
+                runCatching {
+                    s.send(DatagramPacket(payload, payload.size, addr, DISCOVERY_PORT))
                 }
-            } catch (e: Exception) {
-                println("Broadcast error: ${e.message}")
+                // ignore per-address failures
             }
 
             delay(DISCOVER_INTERVAL_MS)
         }
     }
 
-    private suspend fun listenLoop() = coroutineScope {
-        val s = socket ?: return@coroutineScope
+    private suspend fun listenLoop() {
+        val s = socket ?: return
         val buffer = ByteArray(2048)
 
-        while (isActive && _isRunning.value) {
+        while (currentCoroutineContext().isActive && _isRunning.value) {
             try {
                 val packet = DatagramPacket(buffer, buffer.size)
                 s.receive(packet)
 
+                if (packet.length <= 0 || packet.length > buffer.size) continue
+
                 val json = packet.data.decodeToString(0, packet.length)
-                val message = LanJson.decodeFromString(LanPacket.serializer(), json)
+                val message = runCatching {
+                    LanJson.decodeFromString(LanPacket.serializer(), json)
+                }.getOrElse {
+                    // Ignore invalid/malicious packets
+                    continue
+                }
 
                 if (message.deviceId == selfId) continue
-
                 handleReceivedPacket(message, packet)
 
             } catch (e: SocketTimeoutException) {
-                // Normal timeout
+                // Expected, allows loop to check cancellation
             } catch (e: Exception) {
-                if (_isRunning.value) {
-                    println("Listen error: ${e.message}")
-                }
+                if (_isRunning.value) handleError("Listen error", e)
             }
         }
     }
@@ -193,7 +190,6 @@ actual class DeviceDiscovery actual constructor(
             LanPacket.PacketType.DISCOVER -> {
                 sendAnnouncement(packet.address, packet.port)
             }
-
             LanPacket.PacketType.ANNOUNCE -> {
                 val ip = packet.address.hostAddress ?: return
                 addOrUpdateDevice(message, ip)
@@ -201,35 +197,30 @@ actual class DeviceDiscovery actual constructor(
         }
     }
 
-    private fun sendAnnouncement(address: InetAddress, port: Int) {
+    private suspend fun sendAnnouncement(address: InetAddress, port: Int) {
         val s = socket ?: return
 
-        try {
-            val reply = LanPacket(
-                type = LanPacket.PacketType.ANNOUNCE,
-                deviceId = selfId,
-                name = selfName,
-                port = selfPort
-            )
+        val reply = LanPacket(
+            type = LanPacket.PacketType.ANNOUNCE,
+            deviceId = selfId,
+            name = selfName,
+            port = selfPort
+        )
 
-            val replyBytes = LanJson.encodeToString(
-                LanPacket.serializer(),
-                reply
-            ).encodeToByteArray()
-
-            val datagram = DatagramPacket(replyBytes, replyBytes.size, address, port)
-            s.send(datagram)
-        } catch (e: Exception) {
-            println("Failed to send announcement: ${e.message}")
-        }
+        runCatching {
+            val bytes = LanJson.encodeToString(LanPacket.serializer(), reply).encodeToByteArray()
+            s.send(DatagramPacket(bytes, bytes.size, address, port))
+        }.onFailure { handleError("Failed to send announcement", it as Exception) }
     }
 
     private fun addOrUpdateDevice(message: LanPacket, ip: String) {
-        val approved = pairedStore.approvedIds.value.contains(message.deviceId)
+        val approved = message.deviceId in pairedStore.approvedIds.value
+
+        val safeName = message.name.take(64).ifBlank { "Unknown" }
 
         val device = Device(
             deviceId = message.deviceId,
-            name = message.name,
+            name = safeName,
             ipAddress = ip,
             port = message.port,
             isApproved = approved,
@@ -240,17 +231,14 @@ actual class DeviceDiscovery actual constructor(
         publishDevices()
     }
 
-    private suspend fun cleanupLoop() = coroutineScope {
-        while (isActive && _isRunning.value) {
+    private suspend fun cleanupLoop() {
+        while (currentCoroutineContext().isActive && _isRunning.value) {
             delay(1000)
 
             val now = System.currentTimeMillis()
-            val iterator = devices.entries.iterator()
-
-            while (iterator.hasNext()) {
-                val entry = iterator.next()
-                if (now - entry.value.lastSeen > STALE_AFTER_MS) {
-                    iterator.remove()
+            for ((id, d) in devices.entries) {
+                if (now - d.lastSeen > STALE_AFTER_MS) {
+                    devices.remove(id)
                 }
             }
 
@@ -259,17 +247,27 @@ actual class DeviceDiscovery actual constructor(
     }
 
     private fun updateApprovalStatus(approvedIds: Set<String>) {
-        devices.replaceAll { deviceId, device ->
-            device.withApprovalStatus(approvedIds.contains(deviceId))
+        for ((id, d) in devices.entries) {
+            val approved = id in approvedIds
+            if (d.isApproved != approved) {
+                devices[id] = d.withApprovalStatus(approved)
+            }
         }
         publishDevices()
     }
 
     private fun publishDevices() {
-        _discoveredDevices.value = devices.values
-            .sortedWith(
-                compareByDescending<Device> { it.isApproved }
-                    .thenByDescending { it.lastSeen }
-            )
+        val newList = devices.values.sortedWith(
+            compareByDescending<Device> { it.isApproved }
+                .thenByDescending { it.lastSeen }
+        )
+
+        if (_discoveredDevices.value != newList) {
+            _discoveredDevices.value = newList
+        }
+    }
+
+    private fun handleError(message: String, error: Exception) {
+        println("DeviceDiscovery error: $message - ${error.message}")
     }
 }

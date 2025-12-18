@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -23,146 +24,148 @@ import kotlinx.coroutines.launch
 class DeviceDiscoveryViewModel(
     private val discoveryManager: DeviceDiscoveryManager,
     private val deviceInfoProvider: DeviceInfoProvider
-): ViewModel() {
-    private val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+) : ViewModel() {
 
-    // UI State
+    private fun log(msg: String) = println("ClipWhisper/ViewModel: $msg")
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
     private val _uiState = MutableStateFlow(DeviceDiscoveryUiState())
     val uiState: StateFlow<DeviceDiscoveryUiState> = _uiState.asStateFlow()
 
-    // Discovered devices
     val discoveredDevices: StateFlow<List<Device>> = discoveryManager.discoveredDevices
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
-
-    // Is discovery running
     val isDiscovering: StateFlow<Boolean> = discoveryManager.isRunning
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = false
-        )
-
-    // Approved device IDs
     val approvedDeviceIds: StateFlow<Set<String>> = discoveryManager.approvedDeviceIds
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptySet()
-        )
 
-    // Derived states
     val pairedDevices: StateFlow<List<Device>> = discoveredDevices
-        .map { devices -> devices.filter { it.isApproved } }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .map { list -> list.filter { it.isApproved } }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    // ✅ you asked for this exact property name back
     val unpairededDevices: StateFlow<List<Device>> = discoveredDevices
-        .map { devices -> devices.filter { !it.isApproved } }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .map { list -> list.filter { !it.isApproved } }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        // Auto-start discovery if enabled
-        viewModelScope.launch {
-            if (_uiState.value.autoStartEnabled) {
-                startDiscovery()
+        if (_uiState.value.autoStartEnabled) {
+            startDiscovery()
+        }
+
+        // Optional but VERY helpful: logs whenever approved IDs change
+        scope.launch {
+            approvedDeviceIds.collect { ids ->
+                log("approvedDeviceIds changed -> count=${ids.size} ids=$ids")
             }
         }
     }
 
     fun startDiscovery() {
-        viewModelScope.launch {
-            try {
-                _uiState.update { it.copy(error = null) }
+        scope.launch {
+            _uiState.update { it.copy(error = null, message = null) }
 
-                val deviceInfo = deviceInfoProvider.getDeviceInfo()
-                discoveryManager.startDiscovery(
-                    deviceId = deviceInfo.deviceId,
-                    deviceName = deviceInfo.deviceName,
-                    port = deviceInfo.port
-                )
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(error = "Failed to start discovery: ${e.message}")
-                }
+            runCatching {
+                val info = deviceInfoProvider.getDeviceInfo()
+                log("startDiscovery() using selfId=${info.deviceId} name=${info.deviceName} port=${info.port}")
+                discoveryManager.startDiscovery(info.deviceId, info.deviceName, info.port)
+            }.onFailure { e ->
+                log("startDiscovery() failed: ${e.message}")
+                _uiState.update { it.copy(error = "Failed to start discovery: ${e.message}") }
             }
         }
     }
 
     fun stopDiscovery() {
+        log("stopDiscovery()")
         discoveryManager.stopDiscovery()
     }
 
     fun pairDevice(device: Device) {
-        viewModelScope.launch {
-            try {
+        scope.launch {
+            log("pairDevice() clicked deviceId=${device.deviceId} name=${device.name}")
+
+            runCatching {
                 discoveryManager.pairDevice(device.deviceId)
+
+                // ✅ actually use isPaired()
+                val pairedInStore = discoveryManager.isPaired(device.deviceId)
+
+                // check if discovery list reflects it (may lag by a tiny moment)
+                val pairedInList = discoveredDevices.value
+                    .firstOrNull { it.deviceId == device.deviceId }
+                    ?.isApproved
+
+                val approvedCount = discoveryManager.getApprovedDevices().size
+
+                log("pairDevice() result -> store=$pairedInStore, discoveryList=$pairedInList, approvedVisible=$approvedCount")
+
                 _uiState.update {
                     it.copy(
                         selectedDevice = null,
                         showPairDialog = false,
-                        message = "Paired with ${device.name}"
+                        message = buildString {
+                            append("Pair request saved. store=$pairedInStore")
+                            if (pairedInList != null) append(", discoveryList=$pairedInList")
+                            append(" (approvedVisible=$approvedCount)")
+                        }
                     )
                 }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(error = "Failed to pair: ${e.message}")
-                }
+            }.onFailure { e ->
+                log("pairDevice() failed: ${e.message}")
+                _uiState.update { it.copy(error = "Failed to pair: ${e.message}") }
             }
         }
     }
 
     fun unpairDevice(device: Device) {
-        viewModelScope.launch {
-            try {
+        scope.launch {
+            log("unpairDevice() clicked deviceId=${device.deviceId} name=${device.name}")
+
+            runCatching {
                 discoveryManager.unpairDevice(device.deviceId)
+
+                val pairedInStore = discoveryManager.isPaired(device.deviceId)
+                val pairedInList = discoveredDevices.value
+                    .firstOrNull { it.deviceId == device.deviceId }
+                    ?.isApproved
+
+                val approvedCount = discoveryManager.getApprovedDevices().size
+
+                log("unpairDevice() result -> store=$pairedInStore, discoveryList=$pairedInList, approvedVisible=$approvedCount")
+
                 _uiState.update {
                     it.copy(
                         selectedDevice = null,
                         showUnpairDialog = false,
-                        message = "Unpaired from ${device.name}"
+                        message = buildString {
+                            append("Unpair request saved. store=$pairedInStore")
+                            if (pairedInList != null) append(", discoveryList=$pairedInList")
+                            append(" (approvedVisible=$approvedCount)")
+                        }
                     )
                 }
-            } catch (e: Exception) {
-                _uiState.update {
-                    it.copy(error = "Failed to unpair: ${e.message}")
-                }
+            }.onFailure { e ->
+                log("unpairDevice() failed: ${e.message}")
+                _uiState.update { it.copy(error = "Failed to unpair: ${e.message}") }
             }
         }
     }
 
     fun showPairDialog(device: Device) {
-        _uiState.update {
-            it.copy(selectedDevice = device, showPairDialog = true)
-        }
+        _uiState.update { it.copy(selectedDevice = device, showPairDialog = true) }
     }
 
     fun dismissPairDialog() {
-        _uiState.update {
-            it.copy(selectedDevice = null, showPairDialog = false)
-        }
+        _uiState.update { it.copy(selectedDevice = null, showPairDialog = false) }
     }
 
     fun showUnpairDialog(device: Device) {
-        _uiState.update {
-            it.copy(selectedDevice = device, showUnpairDialog = true)
-        }
+        _uiState.update { it.copy(selectedDevice = device, showUnpairDialog = true) }
     }
 
     fun dismissUnpairDialog() {
-        _uiState.update {
-            it.copy(selectedDevice = null, showUnpairDialog = false)
-        }
+        _uiState.update { it.copy(selectedDevice = null, showUnpairDialog = false) }
     }
 
     fun dismissMessage() {
@@ -179,9 +182,16 @@ class DeviceDiscoveryViewModel(
 
     fun onDispose() {
         stopDiscovery()
-        viewModelScope.cancel()
+        scope.cancel()
+    }
+
+    override fun onCleared() {
+        onDispose()
+        super.onCleared()
     }
 }
+
+
 
 /**
  * UI State for device discovery screen

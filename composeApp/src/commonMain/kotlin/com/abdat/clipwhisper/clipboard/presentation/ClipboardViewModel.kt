@@ -6,17 +6,14 @@ import com.abdat.clipwhisper.clipboard.domain.ClipboardListener
 import com.abdat.clipwhisper.clipboard.domain.ClipboardManager
 import com.abdat.clipwhisper.clipboard.domain.ClipboardRepository
 import com.abdat.clipwhisper.clipboard.domain.models.ClipboardState
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-
-
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
-
 import kotlinx.coroutines.launch
 
 
@@ -180,12 +177,6 @@ class ClipboardViewModel(
         }
     }
 
-    /*fun clearHistory() {
-        _state.value = _state.value.copy(
-            history = emptyList(),
-            statusMessage = "🗑️ History cleared"
-        )
-    }*/
     fun clearHistory() {
         viewModelScope.launch {
             repo.clearAll()
@@ -204,22 +195,6 @@ class ClipboardViewModel(
         }
     }
 
-    /*private fun addToHistory(text: String) {
-        val currentHistory = _state.value.history.toMutableList()
-        // Don't add if it's already the most recent
-        if (currentHistory.firstOrNull() == text) {
-            return
-        }
-        // Remove if already exists
-        currentHistory.remove(text)
-        // Add to front
-        currentHistory.add(0, text)
-        // Keep only last 10
-        if (currentHistory.size > 10) {
-            currentHistory.removeAt(currentHistory.lastIndex)
-        }
-        _state.value = _state.value.copy(history = currentHistory)
-    }*/
 
     private fun addToHistory(text: String) {
         viewModelScope.launch {
