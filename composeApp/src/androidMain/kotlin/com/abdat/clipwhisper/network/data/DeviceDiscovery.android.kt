@@ -194,6 +194,7 @@ actual class DeviceDiscovery actual constructor(
             LanPacket.PacketType.DISCOVER -> {
                 sendAnnouncement(packet.address, packet.port)
             }
+
             LanPacket.PacketType.ANNOUNCE -> {
                 val ip = packet.address.hostAddress ?: return
                 addOrUpdateDevice(message, ip)
@@ -240,15 +241,19 @@ actual class DeviceDiscovery actual constructor(
             delay(1000)
 
             val now = System.currentTimeMillis()
+            var removed = false
+
             for ((id, d) in devices.entries) {
                 if (now - d.lastSeen > STALE_AFTER_MS) {
                     devices.remove(id)
+                    removed = true
                 }
             }
 
-            publishDevices()
+            if (removed) publishDevices()
         }
     }
+
 
     private fun updateApprovalStatus(approvedIds: Set<String>) {
         for ((id, d) in devices.entries) {

@@ -28,7 +28,7 @@ import kotlinx.coroutines.launch
 class DeviceDiscoveryViewModel(
     private val discoveryManager: DeviceDiscoveryManager,
     private val deviceInfoProvider: DeviceInfoProvider,
-    private val pairingManager: TcpPairingManager, // ✅ NEW
+    private val pairingManager: TcpPairingManager,
 ) : ViewModel() {
 
     private fun log(msg: String) = println("ClipWhisper/ViewModel: $msg")
@@ -57,7 +57,6 @@ class DeviceDiscoveryViewModel(
         .stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
-        // start TCP server so Desktop can pair to Android too
         pairingManager.startServer()
 
         if (_uiState.value.autoStartEnabled) {
@@ -175,8 +174,6 @@ class DeviceDiscoveryViewModel(
     }
 
     public override fun onCleared() {
-        stopDiscovery()
-        pairingManager.stopServer()
         scope.cancel()
         super.onCleared()
     }
