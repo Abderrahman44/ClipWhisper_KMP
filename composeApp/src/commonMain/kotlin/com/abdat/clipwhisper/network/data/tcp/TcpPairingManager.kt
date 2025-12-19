@@ -1,8 +1,11 @@
 package com.abdat.clipwhisper.network.data.tcp
 
 
+import com.abdat.clipwhisper.core.domain.models.RemoteClipboardEvent
+import com.abdat.clipwhisper.network.data.DeviceDiscoveryManager
 import com.abdat.clipwhisper.network.data.DeviceInfoProvider
 import com.abdat.clipwhisper.network.domain.PairedDeviceStore
+import com.abdat.clipwhisper.network.domain.model.Device
 import com.abdat.clipwhisper.network.domain.model.IncomingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairStatus
@@ -14,8 +17,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -26,25 +34,46 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
 
+
 class TcpPairingManager(
     private val pairedStore: PairedDeviceStore,
     private val deviceInfoProvider: DeviceInfoProvider,
+    private val discoveryManager: DeviceDiscoveryManager,
 ) {
-    private fun log(msg: String) = println("ClipWhisper/Pairing: $msg")
+    private fun log(msg: String) = println("ClipWhisper/TCP: $msg")
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    private val _incoming = MutableStateFlow<List<IncomingPairRequest>>(emptyList())
-    val incomingRequests: StateFlow<List<IncomingPairRequest>> = _incoming.asStateFlow()
-
-    private val _outgoing = MutableStateFlow<List<OutgoingPairRequest>>(emptyList())
-    val outgoingRequests: StateFlow<List<OutgoingPairRequest>> = _outgoing.asStateFlow()
-
     private val mutex = Mutex()
+
+    private val _incomingRequests = MutableStateFlow<List<IncomingPairRequest>>(emptyList())
+    val incomingRequests: StateFlow<List<IncomingPairRequest>> = _incomingRequests.asStateFlow()
+
+    private val _outgoingRequests = MutableStateFlow<List<OutgoingPairRequest>>(emptyList())
+    val outgoingRequests: StateFlow<List<OutgoingPairRequest>> = _outgoingRequests.asStateFlow()
+
+    private val _incomingClipboard = MutableSharedFlow<RemoteClipboardEvent>(extraBufferCapacity = 64)
+    val incomingClipboard: SharedFlow<RemoteClipboardEvent> = _incomingClipboard.asSharedFlow()
 
     private var listener: TcpListener? = null
     private var serverJob: Job? = null
 
+    private var seqCounter = 0L
+
+    // discovery cache for reconnect
+    private val known = mutableMapOf<String, Device>()
+
+    // connections to peers
+    private data class ConnEntry(
+        val peerId: String,
+        val peerName: String,
+        val conn: TcpConnection,
+        val writeMutex: Mutex,
+        val readJob: Job,
+        val keepAliveJob: Job
+    )
+    private val conns = mutableMapOf<String, ConnEntry>()
+
+    // pairing sessions
     private data class IncomingSession(
         val requestId: String,
         val peerId: String,
@@ -52,7 +81,6 @@ class TcpPairingManager(
         val conn: TcpConnection,
         val decision: CompletableDeferred<Boolean>
     )
-
     private data class OutgoingSession(
         val requestId: String,
         val peerId: String,
@@ -65,79 +93,68 @@ class TcpPairingManager(
     private val incomingSessions = mutableMapOf<String, IncomingSession>()
     private val outgoingSessions = mutableMapOf<String, OutgoingSession>()
 
-    fun startServer() {
-        val self = deviceInfoProvider.getDeviceInfo()
-
-        if (serverJob?.isActive == true) {
-            log("TCP server already running on port=${self.port}")
-            return
-        }
-
-        log("Starting TCP server on port=${self.port} (selfId=${self.deviceId}, name=${self.deviceName})")
-
-        try {
-            listener = tcpListen(self.port)
-        } catch (e: Exception) {
-            log("Failed to listen on port=${self.port}: ${e.message}")
-            return
-        }
-
-        serverJob = scope.launch {
-            val l = listener ?: return@launch
-            try {
-                while (isActive) {
-                    val conn = l.accept()
-                    log("Accepted connection from ${conn.remoteAddress}")
-                    launch { handleIncomingConnection(conn) }
+    init {
+        // keep endpoints updated + auto-connect to approved devices when seen
+        scope.launch {
+            discoveryManager.discoveredDevices.collect { list ->
+                mutex.withLock { list.forEach { known[it.deviceId] = it } }
+                list.filter { it.isApproved }.forEach { d ->
+                    ensureConnectedIfPossible(d.deviceId)
                 }
-            } catch (e: Exception) {
-                if (isActive) log("Server loop error: ${e.message}")
             }
         }
     }
 
+    fun startServer() {
+        val self = deviceInfoProvider.getDeviceInfo()
+        if (serverJob?.isActive == true) return
+
+        listener = tcpListen(self.port)
+        serverJob = scope.launch {
+            val l = listener ?: return@launch
+            while (isActive) {
+                val conn = l.accept()
+                launch { handleIncomingConnection(conn) }
+            }
+        }
+        log("TCP server started on port=${self.port}")
+    }
+
     fun stopServer() {
-        log("Stopping TCP server")
         serverJob?.cancel()
         serverJob = null
-
         listener?.close()
         listener = null
 
         scope.launch {
             mutex.withLock {
+                conns.values.forEach { it.conn.close(); it.readJob.cancel(); it.keepAliveJob.cancel() }
+                conns.clear()
                 incomingSessions.values.forEach { it.conn.close() }
                 outgoingSessions.values.forEach { it.conn?.close() }
                 incomingSessions.clear()
                 outgoingSessions.clear()
             }
-            _incoming.value = emptyList()
-            _outgoing.value = emptyList()
+            _incomingRequests.value = emptyList()
+            _outgoingRequests.value = emptyList()
         }
+        log("TCP server stopped")
     }
 
-    /**
-     * Initiator: user taps a discovered device to pair.
-     * Returns requestId immediately (UI can track).
-     */
-    fun requestPairing(
-        targetDeviceId: String,
-        targetName: String,
-        targetHost: String,
-        targetPort: Int
-    ): String {
+
+    fun requestPairing(targetDeviceId: String, targetName: String, targetHost: String, targetPort: Int): String {
         val requestId = randomId()
         val address = "$targetHost:$targetPort"
 
-        updateOutgoing(
-            OutgoingPairRequest(
+        _outgoingRequests.update {
+            it.filterNot { r -> r.requestId == requestId } + OutgoingPairRequest(
                 requestId = requestId,
                 toDeviceId = targetDeviceId,
                 toDeviceName = targetName,
                 toAddress = address,
                 status = OutgoingPairStatus.CONNECTING
             )
-        )
+        }
 
         val session = OutgoingSession(
             requestId = requestId,
@@ -149,15 +166,12 @@ class TcpPairingManager(
 
         scope.launch {
             mutex.withLock { outgoingSessions[requestId] = session }
-
             try {
                 val self = deviceInfoProvider.getDeviceInfo()
-
-                log("Connecting to $address (requestId=$requestId)")
                 val conn = tcpConnect(targetHost, targetPort)
                 session.conn = conn
 
-                // HELLO exchange
+                // HELLO
                 send(conn, PairingPacket(
                     type = PairingPacket.Type.HELLO,
                     deviceId = self.deviceId,
@@ -165,10 +179,8 @@ class TcpPairingManager(
                     port = self.port
                 )
                 )
-
-                val peerHello = receive(conn, timeoutMs = 5_000)
-                require(peerHello.type == PairingPacket.Type.HELLO) { "Expected HELLO, got ${peerHello.type}" }
-                log("HELLO from ${conn.remoteAddress}: id=${peerHello.deviceId} name=${peerHello.deviceName}")
+                val peerHello = receive(conn, 5_000)
+                require(peerHello.type == PairingPacket.Type.HELLO)
 
                 // PAIR_REQUEST
                 send(conn, PairingPacket(
@@ -178,50 +190,44 @@ class TcpPairingManager(
                     deviceName = self.deviceName,
                     port = self.port
                 ))
-                updateOutgoingStatus(requestId, OutgoingPairStatus.WAITING_REMOTE_APPROVAL)
+                setOutgoingStatus(requestId, OutgoingPairStatus.WAITING_REMOTE_APPROVAL)
 
-                // Wait accept/reject
-                val decision = receive(conn, timeoutMs = 30_000)
+                val decision = receive(conn, 30_000)
                 when (decision.type) {
                     PairingPacket.Type.PAIR_ACCEPT -> {
-                        log("Remote accepted (requestId=$requestId). Waiting LOCAL confirm…")
-                        updateOutgoingStatus(requestId, OutgoingPairStatus.WAITING_LOCAL_CONFIRM)
+                        setOutgoingStatus(requestId, OutgoingPairStatus.WAITING_LOCAL_CONFIRM)
 
-                        val confirmed = withTimeoutOrNull(60_000) { session.confirm.await() } ?: false
-                        if (!confirmed) {
+                        val ok = withTimeoutOrNull(60_000) { session.confirm.await() } ?: false
+                        if (!ok) {
                             send(conn, PairingPacket(type = PairingPacket.Type.PAIR_CANCEL, requestId = requestId))
-                            updateOutgoingFailed(requestId, "Local canceled or timed out")
+                            setOutgoingFailed(requestId, "Local canceled or timed out")
                             conn.close()
                             return@launch
                         }
 
-                        // Two-way approval complete: confirm
                         send(conn, PairingPacket(type = PairingPacket.Type.PAIR_CONFIRM, requestId = requestId))
 
-                        // Store approval locally
                         pairedStore.approve(targetDeviceId)
-                        log("PAIRED (initiator). approvedIds=${pairedStore.getApprovedIds()}")
-
                         send(conn, PairingPacket(type = PairingPacket.Type.PAIR_DONE, requestId = requestId))
-                        updateOutgoingStatus(requestId, OutgoingPairStatus.PAIRED)
-                        conn.close()
+                        setOutgoingStatus(requestId, OutgoingPairStatus.PAIRED)
+
+                        // ✅ keep connection alive for clipboard
+                        registerConnection(targetDeviceId, targetName, conn)
                     }
 
                     PairingPacket.Type.PAIR_REJECT -> {
-                        val reason = decision.reason ?: "rejected"
-                        log("Remote rejected (requestId=$requestId) reason=$reason")
-                        updateOutgoingRejected(requestId, reason)
+                        setOutgoingRejected(requestId, decision.reason ?: "rejected")
                         conn.close()
                     }
 
                     else -> {
-                        updateOutgoingFailed(requestId, "Unexpected response: ${decision.type}")
+                        setOutgoingFailed(requestId, "Unexpected: ${decision.type}")
                         conn.close()
                     }
                 }
+
             } catch (e: Exception) {
-                log("Outgoing pairing failed (requestId=$requestId): ${e.message}")
-                updateOutgoingFailed(requestId, e.message ?: "error")
+                setOutgoingFailed(requestId, e.message ?: "error")
                 session.conn?.close()
             } finally {
                 mutex.withLock { outgoingSessions.remove(requestId) }
@@ -231,38 +237,62 @@ class TcpPairingManager(
         return requestId
     }
 
-    // Initiator confirms after remote accept
     fun confirmOutgoing(requestId: String) {
-        scope.launch {
-            mutex.withLock { outgoingSessions[requestId]?.confirm?.complete(true) }
-        }
+        scope.launch { mutex.withLock { outgoingSessions[requestId]?.confirm?.complete(true) } }
     }
 
     fun cancelOutgoing(requestId: String) {
-        scope.launch {
-            mutex.withLock { outgoingSessions[requestId]?.confirm?.complete(false) }
-        }
+        scope.launch { mutex.withLock { outgoingSessions[requestId]?.confirm?.complete(false) } }
     }
 
-    // Receiver decides on incoming request
     fun approveIncoming(requestId: String) {
-        scope.launch {
-            mutex.withLock { incomingSessions[requestId]?.decision?.complete(true) }
-        }
+        scope.launch { mutex.withLock { incomingSessions[requestId]?.decision?.complete(true) } }
     }
 
     fun rejectIncoming(requestId: String) {
+        scope.launch { mutex.withLock { incomingSessions[requestId]?.decision?.complete(false) } }
+    }
+
+
+    fun sendClipboard(text: String) {
+        val trimmed = text.take(MAX_CLIPBOARD_CHARS)
+        if (trimmed.isBlank()) return
+
         scope.launch {
-            mutex.withLock { incomingSessions[requestId]?.decision?.complete(false) }
+            val approved = pairedStore.getApprovedIds()
+            if (approved.isEmpty()) {
+                log("sendClipboard(): no approved peers")
+                return@launch
+            }
+
+            // best-effort reconnect
+            approved.forEach { ensureConnectedIfPossible(it) }
+
+            val self = deviceInfoProvider.getDeviceInfo()
+            val seq = mutex.withLock { ++seqCounter }
+            val pkt = PairingPacket(
+                type = PairingPacket.Type.CLIP_PUSH,
+                deviceId = self.deviceId,
+                deviceName = self.deviceName,
+                text = trimmed,
+                seq = seq,
+                ts = System.currentTimeMillis()
+            )
+
+            val entries = mutex.withLock { conns.values.toList() }
+            var sent = 0
+            entries.forEach { entry ->
+                if (entry.peerId in approved) {
+                    if (sendSafe(entry, pkt)) sent++
+                }
+            }
+            log("sendClipboard(): seq=$seq sent=$sent len=${trimmed.length}")
         }
     }
 
-    // -------------------- Incoming handler --------------------
 
     private suspend fun handleIncomingConnection(conn: TcpConnection) {
         val self = deviceInfoProvider.getDeviceInfo()
-
-        var requestId: String? = null
 
         try {
             // HELLO exchange
@@ -273,22 +303,26 @@ class TcpPairingManager(
                 port = self.port
             ))
 
-            val peerHello = receive(conn, timeoutMs = 5_000)
-            require(peerHello.type == PairingPacket.Type.HELLO) { "Expected HELLO, got ${peerHello.type}" }
+            val peerHello = receive(conn, 5_000)
+            require(peerHello.type == PairingPacket.Type.HELLO)
 
             val peerId = peerHello.deviceId ?: "unknown"
-            val peerName = peerHello.deviceName ?: "Unknown"
-            log("HELLO from ${conn.remoteAddress}: id=$peerId name=$peerName")
+            val peerName = (peerHello.deviceName ?: "Unknown").take(64)
 
-            // Expect PAIR_REQUEST
-            val req = receive(conn, timeoutMs = 30_000)
+            // already paired? register and start read loop
+            if (pairedStore.isApproved(peerId)) {
+                registerConnection(peerId, peerName, conn)
+                return
+            }
+
+            // otherwise require PAIR_REQUEST
+            val req = receive(conn, 30_000)
             if (req.type != PairingPacket.Type.PAIR_REQUEST || req.requestId == null) {
-                log("Expected PAIR_REQUEST, got ${req.type}. Closing.")
                 conn.close()
                 return
             }
 
-            requestId = req.requestId
+            val requestId = req.requestId
             val fromId = req.deviceId ?: peerId
             val fromName = (req.deviceName ?: peerName).take(64)
 
@@ -302,7 +336,7 @@ class TcpPairingManager(
 
             mutex.withLock { incomingSessions[requestId] = session }
 
-            _incoming.update {
+            _incomingRequests.update {
                 it + IncomingPairRequest(
                     requestId = requestId,
                     fromDeviceId = fromId,
@@ -311,89 +345,175 @@ class TcpPairingManager(
                 )
             }
 
-            log("Incoming PAIR_REQUEST requestId=$requestId fromId=$fromId name=$fromName")
-
-            // Wait user decision (receiver approval)
             val approved = withTimeoutOrNull(60_000) { session.decision.await() } ?: false
-
-            _incoming.update { list -> list.filterNot { it.requestId == requestId } }
+            _incomingRequests.update { it.filterNot { r -> r.requestId == requestId } }
 
             if (!approved) {
-                send(conn, PairingPacket(type = PairingPacket.Type.PAIR_REJECT, requestId = requestId, reason = "User rejected or timed out"))
-                log("Receiver rejected/timed out requestId=$requestId")
+                send(conn, PairingPacket(type = PairingPacket.Type.PAIR_REJECT, requestId = requestId, reason = "User rejected"))
                 conn.close()
                 return
             }
 
-            // Receiver accepts
             send(conn, PairingPacket(type = PairingPacket.Type.PAIR_ACCEPT, requestId = requestId))
-            log("Receiver accepted requestId=$requestId. Waiting initiator confirm…")
 
-            // Wait initiator confirm
-            val confirm = receive(conn, timeoutMs = 30_000)
-            when (confirm.type) {
-                PairingPacket.Type.PAIR_CONFIRM -> {
-                    pairedStore.approve(fromId)
-                    log("PAIRED (receiver). approvedIds=${pairedStore.getApprovedIds()}")
-                    send(conn, PairingPacket(type = PairingPacket.Type.PAIR_DONE, requestId = requestId))
-                }
-                PairingPacket.Type.PAIR_CANCEL -> log("Initiator canceled requestId=$requestId")
-                else -> log("Unexpected while waiting confirm: ${confirm.type}")
+            val confirm = receive(conn, 30_000)
+            if (confirm.type == PairingPacket.Type.PAIR_CONFIRM) {
+                pairedStore.approve(fromId)
+                send(conn, PairingPacket(type = PairingPacket.Type.PAIR_DONE, requestId = requestId))
+
+                //  keep connection alive
+                registerConnection(fromId, fromName, conn)
+            } else {
+                conn.close()
             }
 
+        } catch (_: Exception) {
             conn.close()
-        } catch (e: Exception) {
-            log("Incoming pairing error: ${e.message}")
-            conn.close()
+        }
+    }
+
+
+    private suspend fun registerConnection(peerId: String, peerName: String, conn: TcpConnection) {
+        mutex.withLock {
+            if (conns.containsKey(peerId)) {
+                conn.close()
+                return
+            }
+
+            val writeMutex = Mutex()
+            val readJob = scope.launch { readLoop(peerId, peerName, conn) }
+            val keepAliveJob = scope.launch { keepAliveLoop(peerId, conn, writeMutex) }
+
+            conns[peerId] = ConnEntry(peerId, peerName, conn, writeMutex, readJob, keepAliveJob)
+            log("Connected: peerId=$peerId name=$peerName addr=${conn.remoteAddress}")
+        }
+    }
+
+    private suspend fun readLoop(peerId: String, peerName: String, conn: TcpConnection) {
+        try {
+            while (currentCoroutineContext().isActive) {
+                val bytes = conn.readFrame() ?: break
+                val pkt = decode(bytes) ?: continue
+
+                when (pkt.type) {
+                    PairingPacket.Type.CLIP_PUSH -> {
+                        if (!pairedStore.isApproved(peerId)) continue
+                        val txt = pkt.text ?: continue
+                        val seq = pkt.seq ?: 0L
+                        val ts = pkt.ts ?: System.currentTimeMillis()
+
+                        _incomingClipboard.tryEmit(
+                            RemoteClipboardEvent(peerId, peerName, txt, seq, ts)
+                        )
+                    }
+
+                    PairingPacket.Type.PING -> {
+                        val entry = mutex.withLock { conns[peerId] }
+                        if (entry != null) sendSafe(entry, PairingPacket(type = PairingPacket.Type.PONG))
+                    }
+
+                    else -> Unit
+                }
+            }
+        } catch (_: Exception) {
         } finally {
-            if (requestId != null) {
-                mutex.withLock { incomingSessions.remove(requestId) }
-                _incoming.update { list -> list.filterNot { it.requestId == requestId } }
+            cleanup(peerId)
+        }
+    }
+
+    private suspend fun keepAliveLoop(peerId: String, conn: TcpConnection, writeMutex: Mutex) {
+        try {
+            while (currentCoroutineContext().isActive) {
+                delay(15_000)
+                val bytes = PairingJson.encodeToString(
+                    PairingPacket.serializer(),
+                    PairingPacket(type = PairingPacket.Type.PING)
+                ).encodeToByteArray()
+                writeMutex.withLock { conn.writeFrame(bytes) }
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private suspend fun cleanup(peerId: String) {
+        val entry = mutex.withLock { conns.remove(peerId) } ?: return
+        runCatching { entry.conn.close() }
+        entry.readJob.cancel()
+        entry.keepAliveJob.cancel()
+        log("Disconnected: peerId=$peerId")
+    }
+
+    private suspend fun ensureConnectedIfPossible(peerId: String) {
+        val already = mutex.withLock { conns.containsKey(peerId) }
+        if (already) return
+        if (!pairedStore.isApproved(peerId)) return
+
+        val device = mutex.withLock { known[peerId] } ?: return
+
+        scope.launch {
+            try {
+                val self = deviceInfoProvider.getDeviceInfo()
+                val conn = tcpConnect(device.ipAddress, device.port)
+
+                // HELLO exchange
+                send(conn, PairingPacket(
+                    type = PairingPacket.Type.HELLO,
+                    deviceId = self.deviceId,
+                    deviceName = self.deviceName,
+                    port = self.port
+                ))
+                val peerHello = receive(conn, 5_000)
+                require(peerHello.type == PairingPacket.Type.HELLO)
+
+                val name = (peerHello.deviceName ?: device.name).take(64)
+                registerConnection(peerId, name, conn)
+            } catch (_: Exception) {
+                // best effort; retry later
             }
         }
     }
 
-    // -------------------- IO helpers --------------------
+    private suspend fun sendSafe(entry: ConnEntry, pkt: PairingPacket): Boolean {
+        return try {
+            val bytes = PairingJson.encodeToString(PairingPacket.serializer(), pkt).encodeToByteArray()
+            entry.writeMutex.withLock { entry.conn.writeFrame(bytes) }
+            true
+        } catch (_: Exception) {
+            cleanup(entry.peerId)
+            false
+        }
+    }
 
-    private suspend fun send(conn: TcpConnection, packet: PairingPacket) {
-        val bytes = PairingJson.json.encodeToString(PairingPacket.serializer(), packet).encodeToByteArray()
+    private suspend fun send(conn: TcpConnection, pkt: PairingPacket) {
+        val bytes = PairingJson.encodeToString(PairingPacket.serializer(), pkt).encodeToByteArray()
         conn.writeFrame(bytes)
-        log("-> ${packet.type} to ${conn.remoteAddress} req=${packet.requestId}")
     }
 
     private suspend fun receive(conn: TcpConnection, timeoutMs: Long): PairingPacket {
-        val bytes = withTimeout(timeoutMs) {
-            conn.readFrame() ?: throw CancellationException("Connection closed")
-        }
-        val jsonStr = bytes.decodeToString()
-        val pkt = runCatching {
-            PairingJson.json.decodeFromString(PairingPacket.serializer(), jsonStr)
-        }.getOrElse {
-            conn.close()
-            throw IllegalStateException("Invalid packet JSON")
-        }
-        log("<- ${pkt.type} from ${conn.remoteAddress} req=${pkt.requestId}")
-        return pkt
+        val bytes = withTimeout(timeoutMs) { conn.readFrame() ?: throw CancellationException("closed") }
+        return decode(bytes) ?: throw IllegalStateException("bad json")
     }
 
-    private fun updateOutgoing(req: OutgoingPairRequest) {
-        _outgoing.update { list -> list.filterNot { it.requestId == req.requestId } + req }
+    private fun decode(bytes: ByteArray): PairingPacket? {
+        return runCatching {
+            PairingJson.decodeFromString(PairingPacket.serializer(), bytes.decodeToString())
+        }.getOrNull()
     }
 
-    private fun updateOutgoingStatus(requestId: String, status: OutgoingPairStatus) {
-        _outgoing.update { list ->
+    private fun setOutgoingStatus(requestId: String, status: OutgoingPairStatus) {
+        _outgoingRequests.update { list ->
             list.map { if (it.requestId == requestId) it.copy(status = status, error = null) else it }
         }
     }
 
-    private fun updateOutgoingRejected(requestId: String, reason: String) {
-        _outgoing.update { list ->
+    private fun setOutgoingRejected(requestId: String, reason: String) {
+        _outgoingRequests.update { list ->
             list.map { if (it.requestId == requestId) it.copy(status = OutgoingPairStatus.REJECTED, error = reason) else it }
         }
     }
 
-    private fun updateOutgoingFailed(requestId: String, error: String) {
-        _outgoing.update { list ->
+    private fun setOutgoingFailed(requestId: String, error: String) {
+        _outgoingRequests.update { list ->
             list.map { if (it.requestId == requestId) it.copy(status = OutgoingPairStatus.FAILED, error = error) else it }
         }
     }
@@ -402,4 +522,9 @@ class TcpPairingManager(
         val bytes = Random.nextBytes(16)
         return bytes.joinToString("") { b -> ((b.toInt() and 0xFF).toString(16)).padStart(2, '0') }
     }
+
+    companion object {
+        private const val MAX_CLIPBOARD_CHARS = 64_000
+    }
 }
+

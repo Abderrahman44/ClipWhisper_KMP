@@ -7,30 +7,48 @@ import kotlinx.serialization.json.Json
 data class PairingPacket(
     val type: Type,
     val requestId: String? = null,
+
+    // identity
     val deviceId: String? = null,
     val deviceName: String? = null,
     val port: Int? = null,
-    val reason: String? = null
+
+    // clipboard
+    val text: String? = null,
+    val seq: Long? = null,
+    val ts: Long? = null,
+
+    val reason: String? = null,
 ) {
     @Serializable
     enum class Type {
         HELLO,
+
+        // pairing
         PAIR_REQUEST,
         PAIR_ACCEPT,
         PAIR_REJECT,
         PAIR_CONFIRM,
         PAIR_CANCEL,
         PAIR_DONE,
-        ERROR
+
+        // clipboard
+        CLIP_PUSH,
+
+        // keepalive
+        PING,
+        PONG
     }
 }
 
-internal object PairingJson {
-    val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
+internal val PairingJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+    isLenient = true
 }
+
+
+
 data class IncomingPairRequest(
     val requestId: String,
     val fromDeviceId: String,
