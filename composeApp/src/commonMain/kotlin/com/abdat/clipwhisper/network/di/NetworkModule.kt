@@ -1,5 +1,6 @@
 package com.abdat.clipwhisper.network.di
 
+import com.abdat.clipwhisper.network.data.ClipboardSyncManager
 import com.abdat.clipwhisper.network.data.DeviceDiscovery
 import com.abdat.clipwhisper.network.data.DeviceDiscoveryManager
 import com.abdat.clipwhisper.network.data.InMemoryPairedDeviceStore
@@ -19,5 +20,14 @@ val sharedNetworkModule = module {
             pairedStore = get()
         )
     }
-    single { TcpPairingManager(get(), get()) }
+    single { ClipboardSyncManager(get(), get(), get(), get()) }
+
+    single(createdAtStart = true) {
+        TcpPairingManager(
+            get(), get(),
+            discoveryManager = get()
+        ).apply {
+            startServer()
+        }
+    }
 }

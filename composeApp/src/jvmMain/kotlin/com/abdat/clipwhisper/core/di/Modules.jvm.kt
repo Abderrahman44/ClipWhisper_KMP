@@ -12,5 +12,6 @@ actual val platformModuleDataBase = module {
 }
 
 actual val ViewModelModules: Module = module {
-    single { ClipboardViewModel(get(),get(),"desktop-device-123") }
+    single { ClipboardViewModel(
+        get(), get()) }
 }

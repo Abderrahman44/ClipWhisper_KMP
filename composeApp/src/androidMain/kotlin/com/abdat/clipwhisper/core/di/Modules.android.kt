@@ -6,7 +6,6 @@ import com.abdat.clipwhisper.clipboard.presentation.ClipboardViewModel
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.Module
 import org.koin.core.module.dsl.viewModel
-import org.koin.core.module.dsl.viewModelOf
 import org.koin.dsl.module
 
 
@@ -17,5 +16,6 @@ actual val platformModuleDataBase: Module = module {
 
 }
 actual val ViewModelModules: Module = module {
-    viewModel {ClipboardViewModel(get(),get(),"android-device-123")}
+    viewModel {ClipboardViewModel(
+        get(), get())}
 }
