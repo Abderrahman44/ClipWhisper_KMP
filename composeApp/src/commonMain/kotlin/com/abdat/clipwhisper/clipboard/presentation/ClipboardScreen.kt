@@ -48,12 +48,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
-import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipboardScreen(
-    viewModel: ClipboardViewModel = koinInject()
+    viewModel: ClipboardViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -72,6 +72,10 @@ fun ClipboardScreen(
             }
         }
     }
+    LaunchedEffect(Unit) {
+        viewModel.autoFetchClipboard()
+    }
+
 
     Scaffold(
         topBar = {

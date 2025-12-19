@@ -53,7 +53,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -69,12 +68,12 @@ import com.abdat.clipwhisper.network.domain.model.Device
 import com.abdat.clipwhisper.network.domain.model.IncomingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairStatus
-import org.koin.compose.koinInject
+import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceDiscoveryScreen(
-    viewModel: DeviceDiscoveryViewModel = koinInject()
+    viewModel: DeviceDiscoveryViewModel = koinViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val devices by viewModel.discoveredDevices.collectAsStateWithLifecycle()
@@ -270,9 +269,9 @@ fun DeviceDiscoveryScreen(
         }
     }
 
-    DisposableEffect(Unit) {
+   /* DisposableEffect(Unit) {
         onDispose { viewModel.onCleared() }
-    }
+    }*/
 
 }
 
