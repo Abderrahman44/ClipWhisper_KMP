@@ -17,11 +17,11 @@ class SqlDelightClipboardRepository(
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) : ClipboardRepository {
 
-    private val db = ClipWhisperDatabase.Companion(driverFactory.createDriver())
+    private val db = ClipWhisperDatabase(driverFactory.createDriver())
     private val q = db.clipWhisperQueries
 
     override fun observeRecent(limit: Long): Flow<List<ClipboardItem>> {
-        return q.getRecentItems(limit)
+        return q.getRecentWithPinned(limit) // ✅ changed query
             .asFlow()
             .mapToList(dispatcher)
             .map { rows ->
@@ -48,8 +48,8 @@ class SqlDelightClipboardRepository(
         pinned: Boolean
     ): Long = withContext(dispatcher) {
         db.transaction {
-            // “history” UX: move duplicates to top
-            q.deleteByPayload(text)
+            // ✅ duplicates UX: remove only NON-PINNED duplicates
+            q.deleteByPayloadNonPinned(text)
 
             q.insertItem(
                 type = "TEXT",
@@ -60,8 +60,8 @@ class SqlDelightClipboardRepository(
                 payload = text
             )
 
-            // keep only newest N
-            q.deleteKeepNewestN(keepMax)
+            // ✅ trim only NON-PINNED items
+            q.deleteKeepNewestNNonPinned(keepMax)
         }
         q.lastInsertRowId().executeAsOne()
     }
@@ -70,11 +70,15 @@ class SqlDelightClipboardRepository(
         q.updatePinned(pinned = pinned, id = id)
     }
 
+    override suspend fun deleteById(id: Long) = withContext(dispatcher) {
+        q.deleteById(id)
+    }
+
     override suspend fun deleteExpired(nowMillis: Long) = withContext(dispatcher) {
         q.deleteExpired(nowMillis)
     }
 
-    override suspend fun clearAll() = withContext(dispatcher) {
-        q.deleteAllItems()
+    override suspend fun clearAll(keepPinned: Boolean) = withContext(dispatcher) {
+        if (keepPinned) q.deleteAllNonPinned() else q.deleteAllItems()
     }
 }

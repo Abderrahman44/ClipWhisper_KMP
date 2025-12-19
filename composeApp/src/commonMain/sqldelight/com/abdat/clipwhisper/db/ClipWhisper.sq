@@ -28,10 +28,37 @@ getAllItems:
 SELECT * FROM clipboard_items
 ORDER BY created_at_millis DESC;
 
-getRecentItems:
+getRecentWithPinned:
 SELECT * FROM clipboard_items
-ORDER BY created_at_millis DESC
-LIMIT ?;
+WHERE pinned = 1
+   OR id IN (
+        SELECT id FROM clipboard_items
+        WHERE pinned = 0
+        ORDER BY created_at_millis DESC
+        LIMIT ?
+   )
+ORDER BY pinned DESC, created_at_millis DESC;
+
+deleteByPayloadNonPinned:
+DELETE FROM clipboard_items
+WHERE payload = ?
+  AND pinned = 0;
+
+deleteKeepNewestNNonPinned:
+DELETE FROM clipboard_items
+WHERE pinned = 0
+  AND id NOT IN (
+    SELECT id FROM clipboard_items
+    WHERE pinned = 0
+    ORDER BY created_at_millis DESC
+    LIMIT ?
+  );
+
+deleteById:
+DELETE FROM clipboard_items WHERE id = ?;
+
+deleteAllNonPinned:
+DELETE FROM clipboard_items WHERE pinned = 0;
 
 getNonExpiredItems:
 SELECT * FROM clipboard_items

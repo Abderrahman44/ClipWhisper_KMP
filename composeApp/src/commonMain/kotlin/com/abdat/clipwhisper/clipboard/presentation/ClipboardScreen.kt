@@ -1,6 +1,7 @@
 package com.abdat.clipwhisper.clipboard.presentation
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,13 +18,20 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,21 +41,28 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.launch
+import com.abdat.clipwhisper.clipboard.domain.models.ClipboardItem
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,23 +74,62 @@ fun ClipboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    // Show status as snackbar (modern & non-blocking)
+    LaunchedEffect(Unit) { viewModel.autoFetchClipboard() }
+
     LaunchedEffect(state.statusMessage) {
         if (state.statusMessage.isNotBlank()) {
-            scope.launch {
-                snackbarHostState.showSnackbar(
-                    message = state.statusMessage,
-                    withDismissAction = true,
-                    duration = SnackbarDuration.Short
-                )
-                viewModel.clearStatus()
+            snackbarHostState.showSnackbar(
+                message = state.statusMessage,
+                withDismissAction = true,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearStatus()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.undoEvents.collect { deleted ->
+            val res = snackbarHostState.showSnackbar(
+                message = "Deleted",
+                actionLabel = "UNDO",
+                duration = SnackbarDuration.Short
+            )
+            if (res == SnackbarResult.ActionPerformed) {
+                viewModel.undoDelete(deleted)
             }
         }
     }
-    LaunchedEffect(Unit) {
-        viewModel.autoFetchClipboard()
-    }
 
+    var showClearDialog by remember { mutableStateOf(false) }
+    var keepPinned by remember { mutableStateOf(true) }
+
+    if (showClearDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearDialog = false },
+            icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null) },
+            title = { Text("Delete history?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("This will remove clipboard history.")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = keepPinned, onCheckedChange = { keepPinned = it })
+                        Text("Keep pinned items")
+                    }
+                }
+            },
+            confirmButton = {
+                FilledTonalButton(
+                    onClick = {
+                        showClearDialog = false
+                        viewModel.clearHistory(keepPinned = keepPinned)
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -112,7 +166,7 @@ fun ClipboardScreen(
                     isListening = state.isListening,
                     onCopy = {
                         if (state.currentClipboard.isNotBlank()) {
-                            viewModel.copyFromHistory(state.currentClipboard)
+                            viewModel.setClipboard()
                         }
                     }
                 )
@@ -125,32 +179,54 @@ fun ClipboardScreen(
                 )
             }
 
+            if (state.pinned.isNotEmpty()) {
+                item {
+                    PinnedHeader(
+                        count = state.pinned.size,
+                        expanded = state.pinnedExpanded,
+                        onToggle = viewModel::togglePinnedExpanded
+                    )
+                }
+
+                if (state.pinnedExpanded) {
+                    items(state.pinned, key = { it.id }) { item ->
+                        ClipboardRow(
+                            item = item,
+                            onCopy = { viewModel.copyItem(item) },
+                            onPinToggle = { viewModel.togglePin(item) },
+                            onDelete = { viewModel.deleteItem(item) }
+                        )
+                    }
+                }
+            }
+
             item {
                 HistoryHeader(
                     count = state.history.size,
                     max = 10,
-                    onClear = viewModel::clearHistory,
+                    onClear = { showClearDialog = true },
                     enabled = state.history.isNotEmpty()
                 )
             }
 
             if (state.history.isEmpty()) {
-                item {
-                    EmptyHistoryHint()
-                }
+                item { EmptyHistoryHint() }
             } else {
-                items(state.history, key = { it }) { text ->
-                    HistoryRow(
-                        text = text,
-                        onCopy = { viewModel.copyFromHistory(text) }
+                items(state.history, key = { it.id }) { item ->
+                    ClipboardRow(
+                        item = item,
+                        onCopy = { viewModel.copyItem(item) },
+                        onPinToggle = { viewModel.togglePin(item) },
+                        onDelete = { viewModel.deleteItem(item) }
                     )
                 }
             }
 
-            item { Spacer(Modifier.height(72.dp)) } // space for bottom bar
+            item { Spacer(Modifier.height(72.dp)) }
         }
     }
 }
+
 
 @Composable
 private fun CurrentClipboardCard(
@@ -352,3 +428,114 @@ private fun HistoryRow(
         }
     }
 }
+
+@Composable
+private fun PinnedHeader(
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onToggle, onLongClick = onToggle),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text("Pinned", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.width(8.dp))
+        Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.weight(1f))
+        Icon(
+            imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+            contentDescription = null
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ClipboardRow(
+    item: ClipboardItem,
+    onCopy: () -> Unit,
+    onPinToggle: () -> Unit,
+    onDelete: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+
+    val dismissState = rememberSwipeToDismissBoxState(
+        initialValue = SwipeToDismissBoxValue.Settled,
+        positionalThreshold = SwipeToDismissBoxDefaults.positionalThreshold
+    )
+
+    LaunchedEffect(dismissState.currentValue) {
+        val dismissed =
+            dismissState.currentValue == SwipeToDismissBoxValue.StartToEnd ||
+                    dismissState.currentValue == SwipeToDismissBoxValue.EndToStart
+
+        if (dismissed) {
+            onDelete()
+            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+        }
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = MaterialTheme.colorScheme.background
+            ) {}
+        }
+    ) {
+        ElevatedCard(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = onCopy,
+                    onLongClick = { menuOpen = true }
+                ),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.payload,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (item.pinned) {
+                        Text(
+                            text = "Pinned",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                DropdownMenu(
+                    expanded = menuOpen,
+                    onDismissRequest = { menuOpen = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Copy") },
+                        onClick = { menuOpen = false; onCopy() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(if (item.pinned) "Unpin" else "Pin") },
+                        onClick = { menuOpen = false; onPinToggle() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = { menuOpen = false; onDelete() }
+                    )
+                }
+            }
+        }
+    }
+}
+
+

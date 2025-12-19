@@ -6,17 +6,22 @@ import kotlinx.coroutines.flow.Flow
 
 
 interface ClipboardRepository {
-    fun observeRecent(limit: Long = 10): Flow<List<ClipboardItem    >>
+    fun observeRecent(limit: Long): Flow<List<ClipboardItem>>
+
     suspend fun addToHistory(
         text: String,
         originDeviceId: String,
         nowMillis: Long,
-        keepMax: Long = 10,
+        keepMax: Long,
         expiresAtMillis: Long? = null,
-        pinned: Boolean = false,
+        pinned: Boolean = false
     ): Long
 
     suspend fun setPinned(id: Long, pinned: Boolean): QueryResult<Long>
+
+    suspend fun deleteById(id: Long): QueryResult<Long>
+
     suspend fun deleteExpired(nowMillis: Long): QueryResult<Long>
-    suspend fun clearAll(): QueryResult<Long>
+
+    suspend fun clearAll(keepPinned: Boolean): QueryResult<Long>
 }
