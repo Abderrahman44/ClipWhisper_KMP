@@ -93,6 +93,9 @@ class TcpPairingManager(
     private val incomingSessions = mutableMapOf<String, IncomingSession>()
     private val outgoingSessions = mutableMapOf<String, OutgoingSession>()
 
+    private val pendingUnpairs = mutableMapOf<String, CompletableDeferred<Unit>>()
+
+
     init {
         // keep endpoints updated + auto-connect to approved devices when seen
         scope.launch {
@@ -237,6 +240,75 @@ class TcpPairingManager(
         return requestId
     }
 
+    fun requestUnpair(peerId: String) {
+        scope.launch {
+            pairedStore.revoke(peerId)
+            val self = deviceInfoProvider.getDeviceInfo()
+            val requestId = randomId()
+
+            val pkt = PairingPacket(
+                type = PairingPacket.Type.UNPAIR_REQUEST,
+                requestId = requestId,
+                deviceId = self.deviceId,
+                deviceName = self.deviceName,
+                ts = System.currentTimeMillis()
+            )
+
+            val entry = mutex.withLock { conns[peerId] }
+
+            val acked: Boolean = if (entry != null) {
+                val waiter = CompletableDeferred<Unit>()
+                mutex.withLock { pendingUnpairs[requestId] = waiter }
+
+                val sent = sendSafe(entry, pkt)
+                val ok = sent && (withTimeoutOrNull(3_000) { waiter.await(); true } ?: false)
+
+                mutex.withLock { pendingUnpairs.remove(requestId) }
+                ok
+            } else {
+                // best effort: connect via discovery cache even if we're about to revoke locally
+                sendUnpairOverTempConnection(peerId, pkt)
+            }
+
+            cleanup(peerId)
+
+            log("requestUnpair(peerId=$peerId) acked=$acked approvedNow=${pairedStore.isApproved(peerId)}")
+        }
+    }
+
+    private suspend fun sendUnpairOverTempConnection(peerId: String, pkt: PairingPacket): Boolean {
+        val device = mutex.withLock { known[peerId] } ?: return false
+
+        return try {
+            val self = deviceInfoProvider.getDeviceInfo()
+            val conn = tcpConnect(device.ipAddress, device.port)
+
+            // HELLO exchange (must match handleIncomingConnection)
+            send(conn, PairingPacket(
+                type = PairingPacket.Type.HELLO,
+                deviceId = self.deviceId,
+                deviceName = self.deviceName,
+                port = self.port
+            ))
+            val peerHello = receive(conn, 5_000)
+            if (peerHello.type != PairingPacket.Type.HELLO) {
+                conn.close()
+                return false
+            }
+
+            // send UNPAIR
+            send(conn, pkt)
+
+            // wait for ACK (best effort)
+            val ack = runCatching { receive(conn, 5_000) }.getOrNull()
+            conn.close()
+
+            ack?.type == PairingPacket.Type.UNPAIR_ACK && ack.requestId == pkt.requestId
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun confirmOutgoing(requestId: String) {
         scope.launch { mutex.withLock { outgoingSessions[requestId]?.confirm?.complete(true) } }
     }
@@ -374,20 +446,25 @@ class TcpPairingManager(
 
 
     private suspend fun registerConnection(peerId: String, peerName: String, conn: TcpConnection) {
-        mutex.withLock {
-            if (conns.containsKey(peerId)) {
-                conn.close()
-                return
-            }
-
-            val writeMutex = Mutex()
-            val readJob = scope.launch { readLoop(peerId, peerName, conn) }
-            val keepAliveJob = scope.launch { keepAliveLoop(peerId, conn, writeMutex) }
-
-            conns[peerId] = ConnEntry(peerId, peerName, conn, writeMutex, readJob, keepAliveJob)
-            log("Connected: peerId=$peerId name=$peerName addr=${conn.remoteAddress}")
+        // remove old outside the lock usage pattern
+        val old = mutex.withLock { conns.remove(peerId) }
+        if (old != null) {
+            runCatching { old.conn.close() }
+            old.readJob.cancel()
+            old.keepAliveJob.cancel()
+            log("Replaced existing connection: peerId=$peerId")
         }
+
+        val writeMutex = Mutex()
+        val readJob = scope.launch { readLoop(peerId, peerName, conn) }
+        val keepAliveJob = scope.launch { keepAliveLoop(peerId, conn, writeMutex) }
+
+        mutex.withLock {
+            conns[peerId] = ConnEntry(peerId, peerName, conn, writeMutex, readJob, keepAliveJob)
+        }
+        log("Connected: peerId=$peerId name=$peerName addr=${conn.remoteAddress}")
     }
+
 
     private suspend fun readLoop(peerId: String, peerName: String, conn: TcpConnection) {
         try {
@@ -409,9 +486,40 @@ class TcpPairingManager(
 
                     PairingPacket.Type.PING -> {
                         val entry = mutex.withLock { conns[peerId] }
-                        if (entry != null) sendSafe(entry, PairingPacket(type = PairingPacket.Type.PONG))
+                        if (entry != null) sendSafe(
+                            entry,
+                            PairingPacket(type = PairingPacket.Type.PONG)
+                        )
                     }
 
+                    PairingPacket.Type.UNPAIR_REQUEST -> {
+                        val reqId = pkt.requestId
+                        log("UNPAIR_REQUEST from peerId=$peerId reqId=$reqId")
+
+                        if (reqId != null) {
+                            val entry = mutex.withLock { conns[peerId] }
+                            if (entry != null) {
+                                sendSafe(
+                                    entry,
+                                    PairingPacket(
+                                        type = PairingPacket.Type.UNPAIR_ACK,
+                                        requestId = reqId
+                                    )
+                                )
+                            }
+                        }
+
+                        // revoke + close
+                        pairedStore.revoke(peerId)
+                        return
+                    }
+
+                    PairingPacket.Type.UNPAIR_ACK -> {
+                        val reqId = pkt.requestId ?: return
+                        mutex.withLock {
+                            pendingUnpairs.remove(reqId)?.complete(Unit)
+                        }
+                    }
                     else -> Unit
                 }
             }

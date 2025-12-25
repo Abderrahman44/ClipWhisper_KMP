@@ -29,7 +29,8 @@ class DeviceDiscoveryViewModel(
     private val discoveryManager: DeviceDiscoveryManager,
     private val deviceInfoProvider: DeviceInfoProvider,
     private val pairingManager: TcpPairingManager,
-) : ViewModel() {
+) : ViewModel()
+{
 
     private fun log(msg: String) = println("ClipWhisper/ViewModel: $msg")
 
@@ -149,21 +150,23 @@ class DeviceDiscoveryViewModel(
 
     fun unpairDevice(device: Device) {
         scope.launch {
-            runCatching { discoveryManager.unpairDevice(device.deviceId) }
-                .onSuccess {
-                    _uiState.update {
-                        it.copy(
-                            selectedDevice = null,
-                            showUnpairDialog = false,
-                            message = "Unpaired from ${device.name} (local)"
-                        )
-                    }
+            runCatching {
+                // ✅ sends UNPAIR_REQUEST to the peer + revokes locally
+                pairingManager.requestUnpair(device.deviceId)
+            }.onSuccess {
+                _uiState.update {
+                    it.copy(
+                        selectedDevice = null,
+                        showUnpairDialog = false,
+                        message = "Unpaired from ${device.name}"
+                    )
                 }
-                .onFailure { e ->
-                    _uiState.update { it.copy(error = "Failed to unpair: ${e.message}") }
-                }
+            }.onFailure { e ->
+                _uiState.update { it.copy(error = "Failed to unpair: ${e.message}") }
+            }
         }
     }
+
 
     fun dismissMessage() {
         _uiState.update { it.copy(message = null) }

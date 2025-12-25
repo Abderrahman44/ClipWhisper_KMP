@@ -37,7 +37,10 @@ data class PairingPacket(
 
         // keepalive
         PING,
-        PONG
+        PONG,
+
+        UNPAIR_REQUEST,
+        UNPAIR_ACK
     }
 }
 

@@ -1,8 +1,10 @@
 package com.abdat.clipwhisper.clipboard.presentation
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,20 +22,22 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -44,7 +48,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
-import androidx.compose.material3.SwipeToDismissBoxDefaults
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -194,7 +197,8 @@ fun ClipboardScreen(
                             item = item,
                             onCopy = { viewModel.copyItem(item) },
                             onPinToggle = { viewModel.togglePin(item) },
-                            onDelete = { viewModel.deleteItem(item) }
+                            onDelete = { viewModel.deleteItem(item) },
+                            modifier = Modifier
                         )
                     }
                 }
@@ -264,8 +268,7 @@ private fun CurrentClipboardCard(
             }
 
             Text(
-                text = if (clipboardText.isBlank()) "Nothing yet — tap Refresh or start listening."
-                else clipboardText,
+                text = clipboardText.ifBlank { "Nothing yet — tap Refresh or start listening." },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 6,
@@ -458,13 +461,14 @@ private fun ClipboardRow(
     item: ClipboardItem,
     onCopy: () -> Unit,
     onPinToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(16.dp)
 
     val dismissState = rememberSwipeToDismissBoxState(
         initialValue = SwipeToDismissBoxValue.Settled,
-        positionalThreshold = SwipeToDismissBoxDefaults.positionalThreshold
+        positionalThreshold = { it * 0.35f }
     )
 
     LaunchedEffect(dismissState.currentValue) {
@@ -481,56 +485,54 @@ private fun ClipboardRow(
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.background
-            ) {}
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 18.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "Delete",
+                    tint = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
         }
     ) {
         ElevatedCard(
-            modifier = Modifier
+            onClick = onCopy,
+            modifier = modifier
                 .fillMaxWidth()
-                .combinedClickable(
-                    onClick = onCopy,
-                    onLongClick = { menuOpen = true }
+                .then(
+                    if (item.pinned) Modifier.border(
+                        width = 1.dp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                        shape = shape
+                    ) else Modifier
                 ),
-            shape = RoundedCornerShape(16.dp)
+            shape = shape
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = item.payload,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    if (item.pinned) {
-                        Text(
-                            text = "Pinned",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
+                Text(
+                    text = item.payload,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium
+                )
 
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false }
+                IconToggleButton(
+                    checked = item.pinned,
+                    onCheckedChange = { onPinToggle() }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Copy") },
-                        onClick = { menuOpen = false; onCopy() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(if (item.pinned) "Unpin" else "Pin") },
-                        onClick = { menuOpen = false; onPinToggle() }
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Delete") },
-                        onClick = { menuOpen = false; onDelete() }
+                    Icon(
+                        imageVector = if (item.pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (item.pinned) "Unpin" else "Pin",
+                        tint = if (item.pinned) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
