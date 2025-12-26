@@ -3,6 +3,7 @@ package com.abdat.clipwhisper.network.data.tcp
 
 import com.abdat.clipwhisper.core.domain.models.RemoteClipboardEvent
 import com.abdat.clipwhisper.network.data.DeviceDiscoveryManager
+import com.abdat.clipwhisper.network.data.DeviceInfo
 import com.abdat.clipwhisper.network.data.DeviceInfoProvider
 import com.abdat.clipwhisper.network.domain.PairedDeviceStore
 import com.abdat.clipwhisper.network.domain.model.Device
@@ -11,6 +12,7 @@ import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairStatus
 import com.abdat.clipwhisper.network.domain.model.PairingJson
 import com.abdat.clipwhisper.network.domain.model.PairingPacket
+import com.abdat.clipwhisper.settings.AppSettingsStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -25,11 +27,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.random.Random
@@ -39,6 +44,7 @@ class TcpPairingManager(
     private val pairedStore: PairedDeviceStore,
     private val deviceInfoProvider: DeviceInfoProvider,
     private val discoveryManager: DeviceDiscoveryManager,
+    private val settingsStore: AppSettingsStore
 ) {
     private fun log(msg: String) = println("ClipWhisper/TCP: $msg")
 
@@ -95,6 +101,8 @@ class TcpPairingManager(
 
     private val pendingUnpairs = mutableMapOf<String, CompletableDeferred<Unit>>()
 
+    private var listeningPort: Int? = null
+
 
     init {
         // keep endpoints updated + auto-connect to approved devices when seen
@@ -106,21 +114,65 @@ class TcpPairingManager(
                 }
             }
         }
-    }
-
-    fun startServer() {
-        val self = deviceInfoProvider.getDeviceInfo()
-        if (serverJob?.isActive == true) return
-
-        listener = tcpListen(self.port)
-        serverJob = scope.launch {
-            val l = listener ?: return@launch
-            while (isActive) {
-                val conn = l.accept()
-                launch { handleIncomingConnection(conn) }
-            }
+        scope.launch {
+            settingsStore.settings
+                .map { it.listenPort }
+                .distinctUntilChanged()
+                .collect { newPort ->
+                    if (serverJob?.isActive == true) {
+                        log("listenPort changed -> restarting listener on $newPort")
+                        startOrRestartListener()
+                    }
+                }
         }
-        log("TCP server started on port=${self.port}")
+    }
+    fun startServer() {
+        scope.launch { startOrRestartListener() }
+    }
+    private suspend fun startOrRestartListener() {
+        val port = settingsStore.settings.value.listenPort
+
+        mutex.withLock {
+            if (serverJob?.isActive == true && listeningPort == port) return
+
+            serverJob?.cancel()
+            serverJob = null
+            listener?.close()
+            listener = null
+
+            listener = tcpListen(port)
+            listeningPort = port
+
+            serverJob = scope.launch {
+                val l = listener ?: return@launch
+
+                while (isActive) {
+                    val conn = try {
+                        l.accept()
+                    } catch (_: CancellationException) {
+                        // job cancelled -> stop loop
+                        break
+                    } catch (e: java.net.SocketException) {
+                        // happens when listener is closed during restart/stop
+                        log("accept() stopped: ${e.message}")
+                        break
+                    } catch (e: Exception) {
+                        log("accept() failed: ${e.message}")
+                        break
+                    }
+
+                    if (!isActive) {
+                        runCatching { conn.close() }
+                        break
+                    }
+
+                    launch { handleIncomingConnection(conn) }
+                }
+            }
+
+        }
+
+        log("TCP server listening on port=$port")
     }
 
     fun stopServer() {
@@ -630,6 +682,29 @@ class TcpPairingManager(
         val bytes = Random.nextBytes(16)
         return bytes.joinToString("") { b -> ((b.toInt() and 0xFF).toString(16)).padStart(2, '0') }
     }
+
+    private fun selfIdentity(): DeviceInfo {
+        val base = deviceInfoProvider.getDeviceInfo()
+        val s = settingsStore.settings.value
+        return base.copy(
+            deviceName = s.deviceName.trim().ifBlank { base.deviceName },
+            port = s.listenPort
+        )
+    }
+
+    suspend fun canListenOn(port: Int): Boolean {
+        val activeSame = mutex.withLock { serverJob?.isActive == true && listeningPort == port }
+        if (activeSame) return true
+
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                val l = tcpListen(port)
+                l.close()
+                true
+            }.getOrElse { false }
+        }
+    }
+
 
     companion object {
         private const val MAX_CLIPBOARD_CHARS = 64_000

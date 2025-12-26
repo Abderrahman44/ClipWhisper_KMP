@@ -2,15 +2,19 @@ package com.abdat.clipwhisper.network.presentation
 
 
 import androidx.compose.animation.core.EaseInOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +41,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
@@ -59,9 +62,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.abdat.clipwhisper.network.domain.model.Device
@@ -355,14 +363,100 @@ private fun DiscoveryStatusCard(
             }
 
             if (isDiscovering) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(32.dp),
-                    strokeWidth = 3.dp
-                )
+                ScanningPill()
             }
+
         }
     }
 }
+
+@Composable
+private fun ScanningPill(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "scanPill")
+    val tilt by transition.animateFloat(
+        initialValue = -6f,
+        targetValue = 6f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "tilt"
+    )
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.primaryContainer
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(18.dp).rotate(tilt)
+            )
+            Text(
+                text = "Scanning",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            LoadingDots(
+                dotColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.padding(start = 2.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun LoadingDots(
+    modifier: Modifier = Modifier,
+    dotSize: Dp = 6.dp,
+    dotColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
+) {
+    val t = rememberInfiniteTransition(label = "dots")
+
+    @Composable
+    fun anim(delay: Int) = t.animateFloat(
+        initialValue = 0.25f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = keyframes {
+                durationMillis = 900
+                0.25f at 0 using LinearEasing
+                1f at 300 using LinearEasing
+                0.25f at 900 using LinearEasing
+                delayMillis = delay
+            }
+        ),
+        label = "dot$delay"
+    ).value
+
+    val a0 = anim(0)
+    val a1 = anim(120)
+    val a2 = anim(240)
+
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Dot(alpha = a0, size = dotSize, color = dotColor)
+        Dot(alpha = a1, size = dotSize, color = dotColor)
+        Dot(alpha = a2, size = dotSize, color = dotColor)
+    }
+}
+
+@Composable
+private fun Dot(alpha: Float, size: Dp, color: Color) {
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(color.copy(alpha = alpha))
+    )
+}
+
 
 @Composable
 private fun StatusChip(
@@ -560,7 +654,7 @@ private fun EmptyStateCard(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (isLoading) {
-                CircularProgressIndicator()
+                SearchingSkeleton()
             } else {
                 Icon(
                     imageVector = Icons.Default.Search,
@@ -570,12 +664,110 @@ private fun EmptyStateCard(
                 )
             }
 
+
             Text(
                 text = message,
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+}
+@Composable
+private fun SearchingSkeleton(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        // Small modern indicator instead of a huge spinner
+        ScanningPill()
+
+        // Skeleton “device cards”
+        DeviceSkeletonCard()
+        DeviceSkeletonCard()
+    }
+}
+
+@Composable
+private fun DeviceSkeletonCard() {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            ShimmerBlock(
+                modifier = Modifier.size(48.dp),
+                shape = CircleShape
+            )
+
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ShimmerBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.55f)
+                        .height(14.dp),
+                    shape = RoundedCornerShape(6.dp)
+                )
+                ShimmerBlock(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(12.dp),
+                    shape = RoundedCornerShape(6.dp)
+                )
+            }
+
+            ShimmerBlock(
+                modifier = Modifier
+                    .width(72.dp)
+                    .height(32.dp),
+                shape = RoundedCornerShape(999.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ShimmerBlock(
+    modifier: Modifier,
+    shape: Shape
+) {
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val x by transition.animateFloat(
+        initialValue = -1f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(950, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "x"
+    )
+
+    BoxWithConstraints(
+        modifier = modifier
+            .clip(shape)
+    ) {
+        val w = constraints.maxWidth.toFloat().coerceAtLeast(1f)
+        val h = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+
+        val base = MaterialTheme.colorScheme.surfaceVariant
+        val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.07f)
+
+        val brush = Brush.linearGradient(
+            colors = listOf(
+                base.copy(alpha = 0.65f),
+                highlight,
+                base.copy(alpha = 0.65f)
+            ),
+            start = Offset(x * w, 0f),
+            end = Offset(x * w + w, h)
+        )
+
+        Box(Modifier.fillMaxSize().background(brush))
     }
 }
 

@@ -6,8 +6,10 @@ import com.abdat.clipwhisper.clipboard.domain.ClipboardRepository
 import com.abdat.clipwhisper.clipboard.domain.models.ClipboardItem
 import com.abdat.clipwhisper.clipboard.domain.models.ClipboardState
 import com.abdat.clipwhisper.network.data.ClipboardSyncManager
+import com.abdat.clipwhisper.settings.AppSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -16,14 +18,19 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class ClipboardViewModel(
     private val sync: ClipboardSyncManager,
     private val repo: ClipboardRepository,
-    private val nowMillis: () -> Long = { System.currentTimeMillis() }
+    private val settingsStore: AppSettingsStore,
+    private val nowMillis: () -> Long = { System.currentTimeMillis() },
 ) : ViewModel() {
 
     private fun log(msg: String) = println("ClipWhisper/ClipboardVM: $msg")
@@ -38,11 +45,17 @@ class ClipboardViewModel(
 
     init {
         scope.launch {
-            repo.observeRecent(limit = 10).collect { items ->
-                val pinned = items.filter { it.pinned }
-                val history = items.filterNot { it.pinned }
-                _state.update { it.copy(pinned = pinned, history = history) }
-            }
+            settingsStore.settings
+                .map { it.historySizeLimit }
+                .distinctUntilChanged()
+                .flatMapLatest { limit ->
+                    repo.observeRecent(limit = limit.toLong()) // ✅ limit comes from settings
+                }
+                .collect { items ->
+                    val pinned = items.filter { it.pinned }
+                    val history = items.filterNot { it.pinned }
+                    _state.update { it.copy(pinned = pinned, history = history) }
+                }
         }
 
         scope.launch {
@@ -115,11 +128,19 @@ class ClipboardViewModel(
     fun undoDelete(item: ClipboardItem) {
         scope.launch {
             runCatching {
+                val keepMax = settingsStore.settings.value.historySizeLimit.toLong()
+
+                // optional: if user set 0 history, avoid re-inserting non-pinned
+                if (keepMax == 0L && !item.pinned) {
+                    _state.update { it.copy(statusMessage = "History limit is 0 (nothing to restore)") }
+                    return@runCatching
+                }
+
                 repo.addToHistory(
                     text = item.payload,
                     originDeviceId = item.originDeviceId,
                     nowMillis = nowMillis(),
-                    keepMax = 10,
+                    keepMax = keepMax,
                     expiresAtMillis = item.expiresAtMillis,
                     pinned = item.pinned
                 )
@@ -129,6 +150,7 @@ class ClipboardViewModel(
             }
         }
     }
+
 
     fun clearHistory(keepPinned: Boolean = true) {
         scope.launch {

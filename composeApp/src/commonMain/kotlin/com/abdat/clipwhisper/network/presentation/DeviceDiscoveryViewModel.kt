@@ -10,6 +10,7 @@ import com.abdat.clipwhisper.network.data.tcp.TcpPairingManager
 import com.abdat.clipwhisper.network.domain.model.Device
 import com.abdat.clipwhisper.network.domain.model.IncomingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
+import com.abdat.clipwhisper.settings.AppSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,6 +30,7 @@ class DeviceDiscoveryViewModel(
     private val discoveryManager: DeviceDiscoveryManager,
     private val deviceInfoProvider: DeviceInfoProvider,
     private val pairingManager: TcpPairingManager,
+    private val settingsStore: AppSettingsStore,
 ) : ViewModel()
 {
 
@@ -60,8 +62,23 @@ class DeviceDiscoveryViewModel(
     init {
         pairingManager.startServer()
 
-        if (_uiState.value.autoStartEnabled) {
-            startDiscovery()
+        if (_uiState.value.autoStartEnabled) startDiscovery()
+
+        // restart discovery if identity changes while running
+        scope.launch {
+            settingsStore.settings
+                .map { it.deviceName.trim() to it.listenPort }
+                .distinctUntilChanged()
+                .collect { (newName, newPort) ->
+                    if (!isDiscovering.value) return@collect
+
+                    val base = deviceInfoProvider.getDeviceInfo()
+                    val name = newName.ifBlank { base.deviceName }
+
+                    log("Settings changed -> restart discovery name=$name port=$newPort")
+                    discoveryManager.stopDiscovery()
+                    discoveryManager.startDiscovery(base.deviceId, name, newPort)
+                }
         }
 
         scope.launch {
@@ -71,20 +88,27 @@ class DeviceDiscoveryViewModel(
         }
     }
 
+
     fun startDiscovery() {
         scope.launch {
             _uiState.update { it.copy(error = null, message = null) }
 
             runCatching {
-                val info = deviceInfoProvider.getDeviceInfo()
-                log("startDiscovery() selfId=${info.deviceId} name=${info.deviceName} port=${info.port}")
-                discoveryManager.startDiscovery(info.deviceId, info.deviceName, info.port)
+                val base = deviceInfoProvider.getDeviceInfo()
+                val s = settingsStore.settings.value
+
+                val name = s.deviceName.trim().ifBlank { base.deviceName }
+                val port = s.listenPort
+
+                log("startDiscovery() selfId=${base.deviceId} name=$name port=$port")
+                discoveryManager.startDiscovery(base.deviceId, name, port)
             }.onFailure { e ->
                 log("startDiscovery() failed: ${e.message}")
                 _uiState.update { it.copy(error = "Failed to start discovery: ${e.message}") }
             }
         }
     }
+
 
     fun stopDiscovery() {
         discoveryManager.stopDiscovery()

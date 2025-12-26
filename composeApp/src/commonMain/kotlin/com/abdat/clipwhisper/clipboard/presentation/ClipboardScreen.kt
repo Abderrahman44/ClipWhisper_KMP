@@ -1,7 +1,15 @@
 package com.abdat.clipwhisper.clipboard.presentation
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,12 +19,14 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -29,16 +39,18 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -46,22 +58,25 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
-import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,7 +90,6 @@ fun ClipboardScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) { viewModel.autoFetchClipboard() }
 
@@ -106,6 +120,21 @@ fun ClipboardScreen(
     var showClearDialog by remember { mutableStateOf(false) }
     var keepPinned by remember { mutableStateOf(true) }
 
+    // NEW: composer sheet state
+    var showComposer by rememberSaveable { mutableStateOf(false) }
+
+    if (showComposer) {
+        ClipboardComposerBottomSheet(
+            value = state.inputText,
+            onValueChange = viewModel::updateInputText,
+            onSet = {
+                viewModel.setClipboard()
+                showComposer = false
+            },
+            onDismiss = { showComposer = false }
+        )
+    }
+
     if (showClearDialog) {
         AlertDialog(
             onDismissRequest = { showClearDialog = false },
@@ -134,24 +163,35 @@ fun ClipboardScreen(
         )
     }
 
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
+
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text("ClipWhisper") },
+                scrollBehavior = scrollBehavior,
                 actions = {
                     IconButton(onClick = viewModel::getClipboard) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh clipboard")
+                    }
+                    IconButton(onClick = viewModel::toggleListener) {
+                        Icon(
+                            imageVector = if (state.isListening) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (state.isListening) "Stop listening" else "Start listening"
+                        )
                     }
                 }
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        bottomBar = {
-            BottomActionBar(
-                inputText = state.inputText,
-                isListening = state.isListening,
-                onSetClipboard = viewModel::setClipboard,
-                onToggleListener = viewModel::toggleListener
+
+        // NEW: FAB replaces InputCard (+ also replaces BottomActionBar if you accept this layout)
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = { showComposer = true },
+                icon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                text = { Text("Set clipboard") }
             )
         }
     ) { padding ->
@@ -159,12 +199,11 @@ fun ClipboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-
             item {
-                CurrentClipboardCard(
+                CurrentClipboardCardModern(
                     clipboardText = state.currentClipboard,
                     isListening = state.isListening,
                     onCopy = {
@@ -172,13 +211,6 @@ fun ClipboardScreen(
                             viewModel.setClipboard()
                         }
                     }
-                )
-            }
-
-            item {
-                InputCard(
-                    value = state.inputText,
-                    onValueChange = viewModel::updateInputText
                 )
             }
 
@@ -198,7 +230,7 @@ fun ClipboardScreen(
                             onCopy = { viewModel.copyItem(item) },
                             onPinToggle = { viewModel.togglePin(item) },
                             onDelete = { viewModel.deleteItem(item) },
-                            modifier = Modifier
+                            modifier = Modifier.animateItem() //animateItemPlacement
                         )
                     }
                 }
@@ -207,7 +239,7 @@ fun ClipboardScreen(
             item {
                 HistoryHeader(
                     count = state.history.size,
-                    max = 10,
+                    //max = 10,
                     onClear = { showClearDialog = true },
                     enabled = state.history.isNotEmpty()
                 )
@@ -221,149 +253,185 @@ fun ClipboardScreen(
                         item = item,
                         onCopy = { viewModel.copyItem(item) },
                         onPinToggle = { viewModel.togglePin(item) },
-                        onDelete = { viewModel.deleteItem(item) }
+                        onDelete = { viewModel.deleteItem(item) },
+                        modifier = Modifier.animateItem() //Placement()
                     )
                 }
             }
-
-            item { Spacer(Modifier.height(72.dp)) }
         }
     }
 }
 
 
+
 @Composable
-private fun CurrentClipboardCard(
+private fun CurrentClipboardCardModern(
     clipboardText: String,
     isListening: Boolean,
     onCopy: () -> Unit
 ) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+
     ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    text = "Current clipboard",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                AssistChip(
-                    onClick = { /* read-only */ },
-                    label = { Text(if (isListening) "Listening" else "Idle") },
-                    leadingIcon = {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                            contentDescription = null
-                        )
-                    },
-                    enabled = false
-                )
-            }
-
-            Text(
-                text = clipboardText.ifBlank { "Nothing yet — tap Refresh or start listening." },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 6,
-                overflow = TextOverflow.Ellipsis
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End
-            ) {
-                TextButton(onClick = onCopy, enabled = clipboardText.isNotBlank()) {
-                    Icon(Icons.Default.ContentCopy, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("Copy")
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun InputCard(
-    value: String,
-    onValueChange: (String) -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp)
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        shape = RoundedCornerShape(22.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Set clipboard", style = MaterialTheme.typography.titleMedium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ListeningDot(isListening = isListening)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Current clipboard", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        if (isListening) "Listening…" else "Idle",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                FilledTonalIconButton(
+                    onClick = onCopy,
+                    enabled = clipboardText.isNotBlank()
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = "Copy")
+                }
+            }
+
+            AnimatedContent(
+                targetState = clipboardText,
+                label = "clipboardText"
+            ) { text ->
+                val shown = text.ifBlank { "Nothing yet — tap Refresh or start listening." }
+
+                // Nice on desktop: allow selection/copying
+                SelectionContainer {
+                    Text(
+                        text = shown,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (expanded) 20 else 4,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { expanded = !expanded },
+                                onLongClick = { expanded = true }
+                            )
+                    )
+                }
+            }
+
+            if (clipboardText.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(if (expanded) "Show less" else "Show more")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListeningDot(isListening: Boolean) {
+    val transition = rememberInfiniteTransition(label = "listeningDot")
+    val pulse by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 700, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
+    val baseColor =
+        if (isListening) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outline
+
+    Box(
+        modifier = Modifier
+            .size(10.dp)
+            .clip(CircleShape)
+            .background(baseColor.copy(alpha = if (isListening) pulse else 0.6f))
+    )
+}
+
+
+@ExperimentalMaterial3Api
+@Composable
+private fun ClipboardComposerBottomSheet(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onSet: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text("Set clipboard", style = MaterialTheme.typography.titleLarge)
 
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Type something to copy…") },
-                minLines = 2,
-                maxLines = 5,
-                shape = RoundedCornerShape(14.dp)
+                minLines = 3,
+                maxLines = 8,
+                shape = RoundedCornerShape(16.dp)
             )
-        }
-    }
-}
 
-@Composable
-private fun BottomActionBar(
-    inputText: String,
-    isListening: Boolean,
-    onSetClipboard: () -> Unit,
-    onToggleListener: () -> Unit
-) {
-    Surface(
-        tonalElevation = 3.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Button(
-                onClick = onSetClipboard,
-                modifier = Modifier.weight(1f),
-                enabled = inputText.isNotBlank(),
-                shape = RoundedCornerShape(14.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(Icons.Default.ContentCopy, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Set")
-            }
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Cancel")
+                }
 
-            OutlinedButton(
-                onClick = onToggleListener,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(
-                    imageVector = if (isListening) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                    contentDescription = null
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isListening) "Stop" else "Listen")
+                Button(
+                    onClick = onSet,
+                    enabled = value.isNotBlank(),
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Set")
+                }
             }
         }
     }
 }
+
 
 @Composable
 private fun HistoryHeader(
     count: Int,
-    max: Int,
     onClear: () -> Unit,
     enabled: Boolean
 ) {
@@ -377,7 +445,7 @@ private fun HistoryHeader(
         )
         Spacer(Modifier.width(8.dp))
         Text(
-            text = "$count/$max",
+            text = "$count",
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -403,34 +471,6 @@ private fun EmptyHistoryHint() {
     }
 }
 
-@Composable
-private fun HistoryRow(
-    text: String,
-    onCopy: () -> Unit
-) {
-    ElevatedCard(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onCopy),
-        shape = RoundedCornerShape(16.dp)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = text,
-                modifier = Modifier.weight(1f),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            IconButton(onClick = onCopy) {
-                Icon(Icons.Default.ContentCopy, contentDescription = "Copy item")
-            }
-        }
-    }
-}
 
 @Composable
 private fun PinnedHeader(

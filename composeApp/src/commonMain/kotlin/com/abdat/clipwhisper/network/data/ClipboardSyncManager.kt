@@ -5,6 +5,7 @@ import com.abdat.clipwhisper.clipboard.domain.ClipboardListener
 import com.abdat.clipwhisper.clipboard.domain.ClipboardManager
 import com.abdat.clipwhisper.clipboard.domain.ClipboardRepository
 import com.abdat.clipwhisper.network.data.tcp.TcpPairingManager
+import com.abdat.clipwhisper.settings.AppSettingsStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +25,7 @@ class ClipboardSyncManager(
     private val repo: ClipboardRepository,
     private val deviceInfoProvider: DeviceInfoProvider,
     private val tcp: TcpPairingManager,
+    private val settingsStore: AppSettingsStore,
     private val nowMillis: () -> Long = { System.currentTimeMillis() }
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -148,9 +150,26 @@ class ClipboardSyncManager(
     private fun addToHistory(text: String, originId: String) {
         scope.launch {
             runCatching {
-                repo.addToHistory(text, originId, nowMillis(), keepMax = 10)
+                val s = settingsStore.settings.value
+
+                if (s.ignoreEmptyOrWhitespace && text.isBlank()) return@runCatching
+
+                val keepMax = s.historySizeLimit.toLong()
+                if (keepMax == 0L) return@runCatching
+
+                val payload = text.take(s.maxTextSize)
+
+                repo.addToHistory(
+                    text = payload,
+                    originDeviceId = originId,
+                    nowMillis = nowMillis(),
+                    keepMax = keepMax,
+                    expiresAtMillis = null,
+                    pinned = false
+                )
             }
         }
     }
+
 }
 
