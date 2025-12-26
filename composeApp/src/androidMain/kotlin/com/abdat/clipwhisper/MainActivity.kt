@@ -6,11 +6,21 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
-import com.abdat.clipwhisper.core.presentation.ui.theme.AppTheme
+import com.abdat.clipwhisper.settings.AppSettingsStore
+import com.materialkolor.dynamicColorScheme
+import org.koin.compose.koinInject
 
 
 class MainActivity : ComponentActivity() {
@@ -28,46 +38,14 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionLauncher.launch(Manifest.permission.NEARBY_WIFI_DEVICES)
         }
-        /* setContent {
-             val viewModel: ClipboardViewModel = koinViewModel()
-             val lifecycleOwner = LocalLifecycleOwner.current
-
-             // Auto-fetch clipboard when app starts
-             LaunchedEffect(Unit) {
-                 viewModel.autoFetchClipboard()
-             }
-
-             // Auto-fetch clipboard when app comes to foreground
-             DisposableEffect(lifecycleOwner) {
-                 val observer = LifecycleEventObserver { _, event ->
-                     when (event) {
-                         Lifecycle.Event.ON_RESUME -> {
-                             // App came to foreground, fetch clipboard
-                             viewModel.autoFetchClipboard()
-                         }
-                         Lifecycle.Event.ON_DESTROY -> {
-                             viewModel.onClear()
-                         }
-                         else -> {}
-                     }
-                 }
-
-                 lifecycleOwner.lifecycle.addObserver(observer)
-
-                 onDispose {
-                     lifecycleOwner.lifecycle.removeObserver(observer)
-                 }
-             }
-
-             MaterialTheme {
-                 Surface {
-                     ClipboardScreen(viewModel)
-                 }
-             }
-         }*/
         setContent {
-            AppTheme {
-                Surface(color = MaterialTheme.colorScheme.background) {
+            val settingsStore: AppSettingsStore = koinInject()
+
+            AppThemes(settingsStore = settingsStore) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
                     App()
                 }
             }
@@ -80,4 +58,30 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppAndroidPreview() {
     App()
+}
+
+@Composable
+fun AppThemes(
+    settingsStore: AppSettingsStore,
+    content: @Composable () -> Unit
+) {
+    val settings by settingsStore.settings.collectAsState()
+    val isDark = isSystemInDarkTheme()
+
+    val seedColor = remember(settings.themeColor) {
+        val argb = settings.themeColor.toInt()
+        Color(argb)
+    }
+
+    val colorScheme = dynamicColorScheme(
+        seedColor = seedColor,
+        isDark = isDark,
+        isAmoled = false
+    )
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography(),
+        content = content
+    )
 }

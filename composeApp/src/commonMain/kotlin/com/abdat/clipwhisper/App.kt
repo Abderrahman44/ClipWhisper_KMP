@@ -1,8 +1,10 @@
 package com.abdat.clipwhisper
+
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentPaste
-import androidx.compose.material.icons.outlined.Lan
+import androidx.compose.material.icons.outlined.Devices
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -20,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import com.abdat.clipwhisper.clipboard.presentation.ClipboardScreen
 import com.abdat.clipwhisper.core.nav.Routes
 import com.abdat.clipwhisper.network.presentation.DeviceDiscoveryScreen
+import com.abdat.clipwhisper.settings.SettingsScreen
 
 @Composable
 fun App() {
@@ -36,7 +39,9 @@ fun App() {
                         navController.navigate(Routes.ClipboardRoute) {
                             launchSingleTop = true
                             restoreState = true
-                            popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
                         }
                     },
                     icon = { Icon(Icons.Outlined.ContentPaste, contentDescription = "Clipboard") },
@@ -49,11 +54,25 @@ fun App() {
                         navController.navigate(Routes.DevicesRoute) {
                             launchSingleTop = true
                             restoreState = true
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                        }
+                    },
+                    icon = { Icon(Icons.Outlined.Devices, contentDescription = "Devices") },
+                    label = { Text("Devices") }
+                )
+                NavigationBarItem(
+                    selected = destination?.hasRoute<Routes.SettingsRoute>() == true,
+                    onClick = {
+                        navController.navigate(Routes.SettingsRoute) {
+                            launchSingleTop = true
+                            restoreState = true
                             popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                         }
                     },
-                    icon = { Icon(Icons.Outlined.Lan, contentDescription = "Devices") },
-                    label = { Text("Devices") }
+                    icon = { Icon(Icons.Outlined.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") }
                 )
             }
         }
@@ -69,6 +88,10 @@ fun App() {
             composable<Routes.DevicesRoute> {
                 DeviceDiscoveryScreen()
             }
+            composable<Routes.SettingsRoute> {
+                SettingsScreen()
+            }
+
         }
     }
 }
