@@ -2,6 +2,7 @@ package com.abdat.clipwhisper.network.data
 
 import android.content.Context
 import android.os.Build
+import androidx.core.content.edit
 import java.util.UUID
 
 
@@ -17,7 +18,7 @@ actual class DeviceInfoProvider(
         val deviceId = storedId ?: run {
             // Generate once, persist forever (unless user clears app data)
             val newId = "android-${Build.FINGERPRINT.take(40)}-${UUID.randomUUID().toString().take(12)}"
-            prefs.edit().putString(KEY_DEVICE_ID, newId).apply()
+            prefs.edit { putString(KEY_DEVICE_ID, newId) }
             newId
         }
 

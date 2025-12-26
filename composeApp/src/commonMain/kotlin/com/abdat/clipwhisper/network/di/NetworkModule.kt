@@ -20,12 +20,19 @@ val sharedNetworkModule = module {
             pairedStore = get()
         )
     }
-    single { ClipboardSyncManager(get(), get(), get(), get()) }
+    single { ClipboardSyncManager(
+        clipboardManager = get(),
+        repo = get(),
+        deviceInfoProvider = get(),
+        tcp = get(),
+        settingsStore = get()
+    ) }
 
     single(createdAtStart = true) {
         TcpPairingManager(
             get(), get(),
-            discoveryManager = get()
+            discoveryManager = get(),
+            settingsStore = get(),
         ).apply {
             startServer()
         }

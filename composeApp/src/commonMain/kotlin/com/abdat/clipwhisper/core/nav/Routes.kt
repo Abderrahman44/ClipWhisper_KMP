@@ -7,4 +7,6 @@ sealed class Routes() {
      object ClipboardRoute : Routes()
     @Serializable
      object DevicesRoute : Routes()
+    @Serializable
+    object SettingsRoute : Routes()
 }

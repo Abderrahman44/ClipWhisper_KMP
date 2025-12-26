@@ -45,7 +45,6 @@ kotlin {
             // Coroutines Android
             implementation(libs.kotlinx.coroutines.android)
 
-            //implementation(libs.androidx.compose.material.icons.extended)
 
 
         }
@@ -89,8 +88,10 @@ kotlin {
 
             implementation(libs.material.icons.core)
 
-            // Add this only if some icons are still missing
             implementation(compose.materialIconsExtended)
+
+            implementation(libs.material.kolor)
+
 
         }
         commonTest.dependencies {
