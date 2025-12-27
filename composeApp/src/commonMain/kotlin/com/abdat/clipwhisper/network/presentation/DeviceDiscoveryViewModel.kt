@@ -175,7 +175,7 @@ class DeviceDiscoveryViewModel(
     fun unpairDevice(device: Device) {
         scope.launch {
             runCatching {
-                // ✅ sends UNPAIR_REQUEST to the peer + revokes locally
+                // sends UNPAIR_REQUEST to the peer + revokes locally
                 pairingManager.requestUnpair(device.deviceId)
             }.onSuccess {
                 _uiState.update {
@@ -208,9 +208,7 @@ class DeviceDiscoveryViewModel(
 
 
 
-/**
- * UI State for device discovery screen
- */
+
 data class DeviceDiscoveryUiState(
     val selectedDevice: Device? = null,
     val showPairDialog: Boolean = false,

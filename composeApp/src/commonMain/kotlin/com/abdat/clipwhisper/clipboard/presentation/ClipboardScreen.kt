@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -62,7 +63,6 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
@@ -77,17 +77,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.abdat.clipwhisper.clipboard.domain.models.ClipboardItem
+import com.abdat.clipwhisper.settings.AppSettingsStore
+import com.abdat.clipwhisper.settings.BrandTopAppBar
+import com.abdat.clipwhisper.settings.JbScreenBackground
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ClipboardScreen(
-    viewModel: ClipboardViewModel = koinViewModel()
+    viewModel: ClipboardViewModel = koinViewModel(),
+    settingsStore: AppSettingsStore = koinInject()
+
 ) {
+    val settings by settingsStore.settings.collectAsStateWithLifecycle()
+
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -168,9 +177,10 @@ fun ClipboardScreen(
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            TopAppBar(
-                title = { Text("ClipWhisper") },
+            BrandTopAppBar(
+                themeColor = settings.themeColor,
                 scrollBehavior = scrollBehavior,
+                title = { Text("ClipWhisper", fontWeight = FontWeight.Bold)  },
                 actions = {
                     IconButton(onClick = viewModel::getClipboard) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh clipboard")
@@ -178,7 +188,7 @@ fun ClipboardScreen(
                     IconButton(onClick = viewModel::toggleListener) {
                         Icon(
                             imageVector = if (state.isListening) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = if (state.isListening) "Stop listening" else "Start listening"
+                            contentDescription = null
                         )
                     }
                 }
@@ -186,82 +196,87 @@ fun ClipboardScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
 
-        // NEW: FAB replaces InputCard (+ also replaces BottomActionBar if you accept this layout)
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showComposer = true },
-                icon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                icon = { Icon(Icons.AutoMirrored.Filled.Assignment, contentDescription = null) },
                 text = { Text("Set clipboard") }
             )
         }
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item {
-                CurrentClipboardCardModern(
-                    clipboardText = state.currentClipboard,
-                    isListening = state.isListening,
-                    onCopy = {
-                        if (state.currentClipboard.isNotBlank()) {
-                            viewModel.setClipboard()
-                        }
-                    }
-                )
-            }
-
-            if (state.pinned.isNotEmpty()) {
+    )
+    { padding ->
+        JbScreenBackground {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = 96.dp
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 item {
-                    PinnedHeader(
-                        count = state.pinned.size,
-                        expanded = state.pinnedExpanded,
-                        onToggle = viewModel::togglePinnedExpanded
+                    CurrentClipboardCardModern(
+                        clipboardText = state.currentClipboard,
+                        isListening = state.isListening,
+                        onCopy = {
+                            if (state.currentClipboard.isNotBlank()) {
+                                viewModel.copyFromHistory(state.currentClipboard)
+                            }
+                        }
                     )
                 }
 
-                if (state.pinnedExpanded) {
-                    items(state.pinned, key = { it.id }) { item ->
+                if (state.pinned.isNotEmpty()) {
+                    item {
+                        PinnedHeader(
+                            count = state.pinned.size,
+                            expanded = state.pinnedExpanded,
+                            onToggle = viewModel::togglePinnedExpanded
+                        )
+                    }
+
+                    if (state.pinnedExpanded) {
+                        items(state.pinned, key = { it.id }) { item ->
+                                ClipboardRow(
+                                item = item,
+                                onCopy = { viewModel.copyItem(item) },
+                                onPinToggle = { viewModel.togglePin(item) },
+                                onDelete = { viewModel.deleteItem(item) },
+                                modifier = Modifier.animateItem() //animateItemPlacement
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    HistoryHeader(
+                        count = state.history.size,
+                        onClear = { showClearDialog = true },
+                        enabled = state.history.isNotEmpty()
+                    )
+                }
+
+                if (state.history.isEmpty()) {
+                    item { EmptyHistoryHint() }
+                } else {
+                    items(state.history, key = { it.id }) { item ->
                         ClipboardRow(
                             item = item,
                             onCopy = { viewModel.copyItem(item) },
                             onPinToggle = { viewModel.togglePin(item) },
                             onDelete = { viewModel.deleteItem(item) },
-                            modifier = Modifier.animateItem() //animateItemPlacement
+                            modifier = Modifier.animateItem() //Placement()
                         )
                     }
-                }
-            }
-
-            item {
-                HistoryHeader(
-                    count = state.history.size,
-                    //max = 10,
-                    onClear = { showClearDialog = true },
-                    enabled = state.history.isNotEmpty()
-                )
-            }
-
-            if (state.history.isEmpty()) {
-                item { EmptyHistoryHint() }
-            } else {
-                items(state.history, key = { it.id }) { item ->
-                    ClipboardRow(
-                        item = item,
-                        onCopy = { viewModel.copyItem(item) },
-                        onPinToggle = { viewModel.togglePin(item) },
-                        onDelete = { viewModel.deleteItem(item) },
-                        modifier = Modifier.animateItem() //Placement()
-                    )
                 }
             }
         }
     }
 }
-
 
 
 @Composable
@@ -486,7 +501,11 @@ private fun PinnedHeader(
     ) {
         Text("Pinned", style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.width(8.dp))
-        Text("$count", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
         Spacer(Modifier.weight(1f))
         Icon(
             imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,

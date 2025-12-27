@@ -53,8 +53,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -76,13 +74,19 @@ import com.abdat.clipwhisper.network.domain.model.Device
 import com.abdat.clipwhisper.network.domain.model.IncomingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairRequest
 import com.abdat.clipwhisper.network.domain.model.OutgoingPairStatus
+import com.abdat.clipwhisper.settings.AppSettingsStore
+import com.abdat.clipwhisper.settings.BrandTopAppBar
+import com.abdat.clipwhisper.settings.JbScreenBackground
+import org.koin.compose.koinInject
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DeviceDiscoveryScreen(
-    viewModel: DeviceDiscoveryViewModel = koinViewModel()
+    viewModel: DeviceDiscoveryViewModel = koinViewModel(),
+    settingsStore: AppSettingsStore = koinInject()
 ) {
+    val settings by settingsStore.settings.collectAsStateWithLifecycle()
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val devices by viewModel.discoveredDevices.collectAsStateWithLifecycle()
     val isDiscovering by viewModel.isDiscovering.collectAsStateWithLifecycle()
@@ -110,13 +114,14 @@ fun DeviceDiscoveryScreen(
     }
 
 // Initiator side: two-way confirm after remote accepts
-    outgoingRequests.firstOrNull { it.status == OutgoingPairStatus.WAITING_LOCAL_CONFIRM }?.let { req ->
-        ConfirmOutgoingPairDialog(
-            req = req,
-            onConfirm = { viewModel.confirmOutgoingPair(req.requestId) },
-            onCancel = { viewModel.cancelOutgoingPair(req.requestId) }
-        )
-    }
+    outgoingRequests.firstOrNull { it.status == OutgoingPairStatus.WAITING_LOCAL_CONFIRM }
+        ?.let { req ->
+            ConfirmOutgoingPairDialog(
+                req = req,
+                onConfirm = { viewModel.confirmOutgoingPair(req.requestId) },
+                onCancel = { viewModel.cancelOutgoingPair(req.requestId) }
+            )
+        }
 
 
     if (uiState.showUnpairDialog && uiState.selectedDevice != null) {
@@ -149,31 +154,14 @@ fun DeviceDiscoveryScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        "Device Discovery",
-                        fontWeight = FontWeight.Bold
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ),
+            BrandTopAppBar(
+                themeColor = settings.themeColor,
+                title = { Text("Device Discovery", fontWeight = FontWeight.Bold) },
                 actions = {
-                    // Discovery toggle
-                    IconButton(
-                        onClick = {
-                            if (isDiscovering) {
-                                viewModel.stopDiscovery()
-                            } else {
-                                viewModel.startDiscovery()
-                            }
-                        }
-                    ) {
+                    IconButton(onClick = { if (isDiscovering) viewModel.stopDiscovery() else viewModel.startDiscovery() }) {
                         Icon(
                             imageVector = if (isDiscovering) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = if (isDiscovering) "Stop Discovery" else "Start Discovery",
-                            tint = if (isDiscovering) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                            contentDescription = null
                         )
                     }
                 }
@@ -181,106 +169,104 @@ fun DeviceDiscoveryScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
-            // Status Card
-            DiscoveryStatusCard(
-                isDiscovering = isDiscovering,
-                deviceCount = devices.size,
-                pairedCount = pairedDevices.size,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp)
-            )
-
-            // Device Lists
-            LazyColumn(
+        JbScreenBackground {
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(padding)
             ) {
-                // Paired Devices Section
-                if (pairedDevices.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            title = "Paired Devices",
-                            count = pairedDevices.size,
-                            icon = Icons.Default.CheckCircle,
-                            color = MaterialTheme.colorScheme.primary
-                        )
+                // Status Card
+                DiscoveryStatusCard(
+                    isDiscovering = isDiscovering,
+                    deviceCount = devices.size,
+                    pairedCount = pairedDevices.size,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                )
+
+                // Device Lists
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Paired Devices Section
+                    if (pairedDevices.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Paired Devices",
+                                count = pairedDevices.size,
+                                icon = Icons.Default.CheckCircle,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        items(
+                            items = pairedDevices,
+                            key = { it.deviceId }
+                        ) { device ->
+                            DeviceCard(
+                                device = device,
+                                isPaired = true,
+                                onAction = { viewModel.showUnpairDialog(device) },
+                                modifier = Modifier.animateItem()
+                            )
+                        }
+
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
                     }
 
-                    items(
-                        items = pairedDevices,
-                        key = { it.deviceId }
-                    ) { device ->
-                        DeviceCard(
-                            device = device,
-                            isPaired = true,
-                            onAction = { viewModel.showUnpairDialog(device) },
-                            modifier = Modifier.animateItem()
-                        )
+                    // Available Devices Section
+                    if (unpairedDevices.isNotEmpty()) {
+                        item {
+                            SectionHeader(
+                                title = "Available Devices",
+                                count = unpairedDevices.size,
+                                icon = Icons.Default.Devices,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+
+                        items(
+                            items = unpairedDevices,
+                            key = { it.deviceId }
+                        ) { device ->
+                            DeviceCard(
+                                device = device,
+                                isPaired = false,
+                                onAction = { viewModel.showPairDialog(device) },
+                                modifier = Modifier.animateItem()
+                            )
+                        }
+                    }
+
+                    // Empty state
+                    if (devices.isEmpty() && isDiscovering) {
+                        item {
+                            EmptyStateCard(
+                                message = "Searching for devices...",
+                                isLoading = true
+                            )
+                        }
+                    }
+
+                    if (devices.isEmpty() && !isDiscovering) {
+                        item {
+                            EmptyStateCard(
+                                message = "No devices found. Start discovery to search.",
+                                isLoading = false
+                            )
+                        }
                     }
 
                     item { Spacer(modifier = Modifier.height(16.dp)) }
                 }
-
-                // Available Devices Section
-                if (unpairedDevices.isNotEmpty()) {
-                    item {
-                        SectionHeader(
-                            title = "Available Devices",
-                            count = unpairedDevices.size,
-                            icon = Icons.Default.Devices,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-
-                    items(
-                        items = unpairedDevices,
-                        key = { it.deviceId }
-                    ) { device ->
-                        DeviceCard(
-                            device = device,
-                            isPaired = false,
-                            onAction = { viewModel.showPairDialog(device) },
-                            modifier = Modifier.animateItem()
-                        )
-                    }
-                }
-
-                // Empty state
-                if (devices.isEmpty() && isDiscovering) {
-                    item {
-                        EmptyStateCard(
-                            message = "Searching for devices...",
-                            isLoading = true
-                        )
-                    }
-                }
-
-                if (devices.isEmpty() && !isDiscovering) {
-                    item {
-                        EmptyStateCard(
-                            message = "No devices found. Start discovery to search.",
-                            isLoading = false
-                        )
-                    }
-                }
-
-                item { Spacer(modifier = Modifier.height(16.dp)) }
             }
         }
+
     }
-
-   /* DisposableEffect(Unit) {
-        onDispose { viewModel.onCleared() }
-    }*/
-
 }
 
 @Composable
@@ -706,7 +692,10 @@ private fun DeviceSkeletonCard() {
                 shape = CircleShape
             )
 
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 ShimmerBlock(
                     modifier = Modifier
                         .fillMaxWidth(0.55f)
@@ -868,6 +857,7 @@ private fun UnpairDeviceDialog(
         }
     )
 }
+
 @Composable
 private fun IncomingPairRequestDialog(
     req: IncomingPairRequest,

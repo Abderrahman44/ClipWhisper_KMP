@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import com.abdat.clipwhisper.settings.AppSettingsStore
+import com.abdat.clipwhisper.settings.ThemeMode
 import com.materialkolor.dynamicColorScheme
 import org.koin.compose.koinInject
 
@@ -66,16 +67,20 @@ fun AppThemes(
     content: @Composable () -> Unit
 ) {
     val settings by settingsStore.settings.collectAsState()
-    val isDark = isSystemInDarkTheme()
+
+    val darkTheme = when (settings.themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.DARK -> true
+        ThemeMode.LIGHT -> false
+    }
 
     val seedColor = remember(settings.themeColor) {
-        val argb = settings.themeColor.toInt()
-        Color(argb)
+        Color(settings.themeColor.toInt())
     }
 
     val colorScheme = dynamicColorScheme(
         seedColor = seedColor,
-        isDark = isDark,
+        isDark = darkTheme,
         isAmoled = false
     )
 

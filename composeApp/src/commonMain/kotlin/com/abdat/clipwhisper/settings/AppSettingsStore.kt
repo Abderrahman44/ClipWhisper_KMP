@@ -13,5 +13,7 @@ interface AppSettingsStore {
     suspend fun setHistorySizeLimit(value: Int)
     suspend fun resetAll()
     suspend fun setThemeColor(color: Long)
+    suspend fun setThemeMode(mode: ThemeMode)
+
 
 }

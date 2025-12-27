@@ -6,14 +6,12 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -22,37 +20,40 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AutoMode
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.DevicesOther
 import androidx.compose.material.icons.outlined.FilterAlt
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.Save
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -68,7 +69,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -154,342 +154,284 @@ fun SettingsScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            val accentBrush = remember(settings.themeColor) {
-                BrandThemePresets.findByStoredLong(settings.themeColor)?.previewBrush
-            }
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(accentBrush ?: SolidColor(MaterialTheme.colorScheme.surface))
-            ) {
-                TopAppBar(
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-                title = {
-                    Text(
-                        "Settings",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-                },
+            BrandTopAppBar(
+                themeColor = settings.themeColor,
+                title = { Text("Settings", fontWeight = FontWeight.Bold) },
                 actions = {
                     IconButton(onClick = { showResetDialog = true }) {
                         Icon(Icons.Outlined.RestartAlt, contentDescription = "Reset all settings")
                     }
                 }
             )
-            }
         }
+
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            // Theme Section
-            item {
-                SettingsCard(
-                    title = "Appearance",
-                    icon = Icons.Outlined.Palette
-                ) {
-                    ThemeColorSelector(
-                        currentColor = settings.themeColor,
-                        onClick = { showThemePicker = true }
-                    )
-                }
-            }
+        JbScreenBackground {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(vertical = 16.dp)
+            ) {
 
-            item {
-                SettingsCard(
-                    title = "Device Identity",
-                    icon = Icons.Outlined.DevicesOther
-                ) {
-                    OutlinedTextField(
-                        value = deviceNameInput,
-                        onValueChange = { deviceNameInput = it.take(64) },
-                        label = { Text("Device name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    OutlinedTextField(
-                        value = deviceId,
-                        onValueChange = {},
-                        label = { Text("Device ID") },
-                        readOnly = true,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-
-                    OutlinedTextField(
-                        value = portInput,
-                        onValueChange = { portInput = it.filter(Char::isDigit).take(5) },
-                        label = { Text("Listening port") },
-                        supportingText = { Text("1024-65535") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val name = deviceNameInput.trim()
-                                val port = parsePortOrNull(portInput)
-
-                                if (name.isBlank()) {
-                                    showSnack("Device name cannot be empty")
-                                    return@Button
-                                }
-                                if (port == null) {
-                                    showSnack("Please input a valid port")
-                                    return@Button
-                                }
-
-                                val err = portValidationError(port)
-                                if (err != null) {
-                                    showSnack(err)
-                                    return@Button
-                                }
-
+                item {
+                    JbSectionCard(title = "Appearance", icon = Icons.Outlined.Palette) {
+                        // keep your ThemeColorSelector, but make it look branded (below)
+                        ThemeColorSelector(
+                            currentColor = settings.themeColor,
+                            onClick = { showThemePicker = true }
+                        )
+                        ThemeModeSelector(
+                            current = settings.themeMode,
+                            onSelect = { mode ->
                                 scope.launch {
-                                    settingsStore.setDeviceName(name)
-                                    val currentPort = settingsStore.settings.value.listenPort
+                                    settingsStore.setThemeMode(mode)
+                                    showSnack("Theme mode updated")
+                                }
+                            }
+                        )
 
-                                    if (port == currentPort) {
-                                        showSnack("Saved device identity")
-                                        return@launch
+                    }
+                }
+
+                item {
+                    JbSectionCard(title = "Device Identity", icon = Icons.Outlined.DevicesOther) {
+                        // keep your fields, but consider: Device ID looks more "dev" if it’s in tonal surface
+                        OutlinedTextField(
+                            value = deviceNameInput,
+                            onValueChange = { deviceNameInput = it.take(64) },
+                            label = { Text("Device name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        OutlinedTextField(
+                            value = deviceId,
+                            onValueChange = {},
+                            label = { Text("Device ID") },
+                            readOnly = true,
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f),
+                                disabledTextColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+
+                        OutlinedTextField(
+                            value = portInput,
+                            onValueChange = { portInput = it.filter(Char::isDigit).take(5) },
+                            label = { Text("Listening port") },
+                            supportingText = { Text("1024–65535") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    val name = deviceNameInput.trim()
+                                    val port = parsePortOrNull(portInput)
+
+                                    if (name.isBlank()) {
+                                        showSnack("Device name cannot be empty")
+                                        return@Button
+                                    }
+                                    if (port == null) {
+                                        showSnack("Please input a valid port")
+                                        return@Button
                                     }
 
-                                    val available = pairingManager.canListenOn(port)
-                                    if (available) {
-                                        settingsStore.setListenPort(port)
-                                        showSnack("Saved device identity")
-                                    } else {
-                                        val defaultPort = deviceInfoProvider.getDeviceInfo().port
-                                        val defaultOk = pairingManager.canListenOn(defaultPort)
+                                    val err = portValidationError(port)
+                                    if (err != null) {
+                                        showSnack(err)
+                                        return@Button
+                                    }
 
-                                        if (defaultOk) {
-                                            settingsStore.setListenPort(defaultPort)
-                                            showSnack("Port $port in use. Reverted to $defaultPort")
+                                    scope.launch {
+                                        settingsStore.setDeviceName(name)
+                                        val currentPort = settingsStore.settings.value.listenPort
+
+                                        if (port == currentPort) {
+                                            showSnack("Saved device identity")
+                                            return@launch
+                                        }
+
+                                        val available = pairingManager.canListenOn(port)
+                                        if (available) {
+                                            settingsStore.setListenPort(port)
+                                            showSnack("Saved device identity")
                                         } else {
-                                            showSnack("Port unavailable. Choose another.")
+                                            val defaultPort =
+                                                deviceInfoProvider.getDeviceInfo().port
+                                            val defaultOk = pairingManager.canListenOn(defaultPort)
+
+                                            if (defaultOk) {
+                                                settingsStore.setListenPort(defaultPort)
+                                                showSnack("Port $port in use. Reverted to $defaultPort")
+                                            } else {
+                                                showSnack("Port unavailable. Choose another.")
+                                            }
                                         }
                                     }
+                                },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Spacer(Modifier.width(8.dp))
+                                Text("Save")
+                            }
+
+                            FilledTonalIconButton(
+                                onClick = {
+                                    scope.launch {
+                                        settingsStore.resetListenPort()
+                                        showSnack("Port reset")
+                                    }
+                                }
+                            ) { Icon(Icons.Outlined.RestartAlt, null) }
+                        }
+                    }
+                }
+
+                item {
+                    JbSectionCard(title = "Sync Filters", icon = Icons.Outlined.FilterAlt) {
+                        OutlinedTextField(
+                            value = maxTextSizeInput,
+                            onValueChange = { maxTextSizeInput = it.filter(Char::isDigit).take(6) },
+                            label = { Text("Max text size") },
+                            supportingText = { Text("1–64,000 characters") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        JbPreferenceRow(
+                            title = "Ignore empty/whitespace",
+                            subtitle = "Skips blank content during sync",
+                            trailing = {
+                                Switch(
+                                    checked = settings.ignoreEmptyOrWhitespace,
+                                    onCheckedChange = { checked ->
+                                        scope.launch {
+                                            settingsStore.setIgnoreEmptyOrWhitespace(
+                                                checked
+                                            )
+                                        }
+                                    }
+                                )
+                            }
+                        )
+
+                        Button(
+                            onClick = {
+                                val v = parseMaxTextOrNull(maxTextSizeInput)
+                                if (v == null) {
+                                    showSnack("Max text size must be 1-64,000")
+                                    return@Button
+                                }
+                                scope.launch {
+                                    settingsStore.setMaxTextSize(v)
+                                    showSnack("Sync filters saved")
+                                }
+
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        ) {
+                            Spacer(Modifier.width(8.dp))
+                            Text("Save filters")
+                        }
+                    }
+                }
+
+                item {
+                    JbSectionCard(title = "Data & Maintenance", icon = Icons.Outlined.Storage) {
+                        OutlinedTextField(
+                            value = historyLimitInput,
+                            onValueChange = {
+                                historyLimitInput = it.filter(Char::isDigit).take(5)
+                            },
+                            label = { Text("History size limit") },
+                            supportingText = { Text("0–10,000 items") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
+                        )
+
+                        Button(
+                            onClick = {
+                                val v = parseHistoryOrNull(historyLimitInput)
+                                if (v == null) {
+                                    showSnack("History size must be 0-10,000")
+                                    return@Button
+                                }
+                                scope.launch {
+                                    settingsStore.setHistorySizeLimit(v)
+                                    showSnack("History limit saved")
                                 }
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp)
                         ) {
-                            Icon(Icons.Outlined.Save, null, Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
-                            Text("Save")
+                            Text("Save limit")
                         }
+                    }
+                }
 
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    settingsStore.resetListenPort()
-                                    showSnack("Port reset")
-                                }
-                            }
+                item {
+                    JbSectionCard(title = "About", icon = Icons.Outlined.Info) {
+                        InfoRow("Version", appVersion)
+
+                        Text(
+                            "Open-source under Apache-2.0, MIT, and BSD-3-Clause licenses",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Icon(Icons.Outlined.RestartAlt, null, Modifier.size(18.dp))
+                            FilledTonalButton(
+                                onClick = { uriHandler.openUri(githubUrl) },
+                                modifier = Modifier.weight(1f),
+                                enabled = githubUrl.isNotBlank(),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Icon(Icons.Outlined.Code, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("GitHub")
+                            }
+
+                            FilledTonalButton(
+                                onClick = { uriHandler.openUri(linkedInUrl) },
+                                modifier = Modifier.weight(1f),
+                                enabled = linkedInUrl.isNotBlank(),
+                                shape = RoundedCornerShape(16.dp)
+                            ) {
+                                Icon(Icons.Outlined.Person, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("LinkedIn")
+                            }
                         }
                     }
                 }
             }
-
-            // Sync Filters
-            item {
-                SettingsCard(
-                    title = "Sync Filters",
-                    icon = Icons.Outlined.FilterAlt
-                ) {
-                    OutlinedTextField(
-                        value = maxTextSizeInput,
-                        onValueChange = { maxTextSizeInput = it.filter(Char::isDigit).take(6) },
-                        label = { Text("Max text size (chars)") },
-                        supportingText = { Text("1-64,000 characters") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    SettingsToggleItem(
-                        title = "Ignore empty/whitespace",
-                        checked = settings.ignoreEmptyOrWhitespace,
-                        onCheckedChange = { checked ->
-                            scope.launch { settingsStore.setIgnoreEmptyOrWhitespace(checked) }
-                        }
-                    )
-
-                    Button(
-                        onClick = {
-                            val v = parseMaxTextOrNull(maxTextSizeInput)
-                            if (v == null) {
-                                showSnack("Max text size must be 1-64,000")
-                                return@Button
-                            }
-                            scope.launch {
-                                settingsStore.setMaxTextSize(v)
-                                showSnack("Sync filters saved")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Outlined.Save, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save")
-                    }
-                }
-            }
-
-            item {
-                SettingsCard(
-                    title = "Data & Maintenance",
-                    icon = Icons.Outlined.Storage
-                ) {
-                    OutlinedTextField(
-                        value = historyLimitInput,
-                        onValueChange = { historyLimitInput = it.filter(Char::isDigit).take(5) },
-                        label = { Text("History size limit") },
-                        supportingText = { Text("0-10,000 items") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-
-                    Button(
-                        onClick = {
-                            val v = parseHistoryOrNull(historyLimitInput)
-                            if (v == null) {
-                                showSnack("History size must be 0-10,000")
-                                return@Button
-                            }
-                            scope.launch {
-                                settingsStore.setHistorySizeLimit(v)
-                                showSnack("History limit saved")
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Outlined.Save, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Save")
-                    }
-                }
-            }
-
-            item {
-                SettingsCard(
-                    title = "About",
-                    icon = Icons.Outlined.Info
-                ) {
-                    InfoRow(label = "Version", value = appVersion)
-
-                    Text(
-                        "Open-source under Apache-2.0, MIT, and BSD-3-Clause licenses",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(githubUrl) },
-                            modifier = Modifier.weight(1f),
-                            enabled = githubUrl.isNotBlank()
-                        ) {
-                            Icon(Icons.Outlined.Code, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("GitHub")
-                        }
-
-                        OutlinedButton(
-                            onClick = { uriHandler.openUri(linkedInUrl) },
-                            modifier = Modifier.weight(1f),
-                            enabled = linkedInUrl.isNotBlank()
-                        ) {
-                            Icon(Icons.Outlined.Person, null, Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("LinkedIn")
-                        }
-                    }
-                }
-            }
-
-            item { Spacer(Modifier.height(8.dp)) }
         }
     }
+
 }
 
-@Composable
-private fun SettingsCard(
-    title: String,
-    icon: ImageVector,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-            content()
-        }
-    }
-}
-
-@Composable
-private fun SettingsToggleItem(
-    title: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .clickable { onCheckedChange(!checked) }
-            .padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = title,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodyLarge
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange
-        )
-    }
-}
 
 @Composable
 private fun InfoRow(label: String, value: String) {
@@ -510,6 +452,7 @@ private fun InfoRow(label: String, value: String) {
         )
     }
 }
+
 @Composable
 private fun ThemeColorSelector(
     currentColor: Long,
@@ -517,40 +460,41 @@ private fun ThemeColorSelector(
 ) {
     val fallbackColor = remember(currentColor) { Color(currentColor.toInt()) }
     val preset = remember(currentColor) { BrandThemePresets.findByStoredLong(currentColor) }
-    val previewBrush: Brush? = preset?.previewBrush
+    val previewBrush = preset?.previewBrush
 
-    Row(
+    val shape = RoundedCornerShape(18.dp)
+    val stroke = remember { JbBrand.strokeBrush(alpha = 0.40f) }
+
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+            .clip(shape)
+            .border(1.dp, stroke, shape),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        onClick = onClick
     ) {
-        Column {
-            Text(
-                text = "Theme Color",
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium
-            )
-            Text(
-                text = preset?.name ?: "Customize your app's color scheme",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Theme color",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    preset?.name ?: "Choose a KotlinConf-like accent",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            JbColorDot(brush = previewBrush, fallback = fallbackColor)
         }
-
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(previewBrush ?: SolidColor(fallbackColor))
-                .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-        )
     }
 }
+
 @Composable
 fun ThemePickerDialogCompact(
     currentThemeColor: Long,
@@ -617,6 +561,42 @@ private fun ThemePresetItem(
         }
     }
 }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ThemeModeSelector(
+    current: ThemeMode,
+    onSelect: (ThemeMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            text = "Theme mode",
+            style = MaterialTheme.typography.titleSmall
+        )
+
+        val items = listOf(
+            Triple("System", Icons.Outlined.AutoMode, ThemeMode.SYSTEM),
+            Triple("Light", Icons.Outlined.LightMode, ThemeMode.LIGHT),
+            Triple("Dark", Icons.Outlined.DarkMode, ThemeMode.DARK),
+        )
+
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            items.forEachIndexed { index, (label, icon, mode) ->
+                SegmentedButton(
+                    selected = current == mode,
+                    onClick = { onSelect(mode) },
+                    shape = SegmentedButtonDefaults.itemShape(index, items.size),
+                    icon = {
+                        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                ) {
+                    Text(label)
+                }
+            }
+        }
+    }
+}
+
 
 private fun portValidationError(port: Int): String? {
     if (port !in 1024..65535) return "Port must be between 1024 and 65535"

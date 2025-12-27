@@ -27,9 +27,11 @@ class DesktopAppSettingsStore(
             maxTextSize = 64_000,
             ignoreEmptyOrWhitespace = true,
             historySizeLimit = 50,
-            themeColor = 0xFF6750A4.toInt().toLong()
+            themeColor = 0xFF6750A4.toInt().toLong(),
+            themeMode = ThemeMode.SYSTEM
         )
     }
+
 
     private val _settings = MutableStateFlow(load())
     override val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -45,8 +47,11 @@ class DesktopAppSettingsStore(
         val hist = p.getProperty("history_limit")?.toIntOrNull()?.coerceIn(0, 10_000) ?: defaults.historySizeLimit
         val theme = p.getProperty("theme_color")?.toLongOrNull() ?: defaults.themeColor
 
-        return AppSettings(name, port, max, ign, hist, theme)
-    }
+        val mode = p.getProperty("theme_mode")
+            ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
+            ?: defaults.themeMode
+
+        return AppSettings(name, port, max, ign, hist, theme, mode)   }
 
     private fun persist(s: AppSettings) {
         val p = java.util.Properties().apply {
@@ -56,6 +61,8 @@ class DesktopAppSettingsStore(
             setProperty("ignore_empty_ws", s.ignoreEmptyOrWhitespace.toString())
             setProperty("history_limit", s.historySizeLimit.toString())
             setProperty("theme_color", s.themeColor.toString())
+            setProperty("theme_mode", s.themeMode.name)
+
         }
 
         runCatching {
@@ -132,5 +139,15 @@ class DesktopAppSettingsStore(
             persist(next)
         }
     }
+
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        mutex.withLock {
+            val updated = _settings.value.copy(themeMode = mode)
+            persist(updated)
+            _settings.value = updated
+        }
+    }
+
+
 
 }

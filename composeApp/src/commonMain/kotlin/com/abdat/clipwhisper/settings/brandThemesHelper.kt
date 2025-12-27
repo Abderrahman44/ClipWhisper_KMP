@@ -3,6 +3,8 @@ package com.abdat.clipwhisper.settings
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 
 // ---- mean merge (ARGB average) ----
@@ -32,6 +34,8 @@ fun meanColor( colors: Array<Color>): Color {
 }
 
 private fun Color.toThemeLong(): Long = this.toArgb().toLong()
+private fun Long.toColor(): Color = Color(this.toInt())
+
 
 @Immutable
 data class ThemePreset(
@@ -74,7 +78,6 @@ object BrandThemePresets {
         ThemePreset("KotlinConf", KotlinConfSeed, KotlinConfGradient),
         ThemePreset("Compose MP", ComposeMpSeed, ComposeMpGradient),
 
-        // Your existing solids (keep them if you want)
         ThemePreset("Rose", Color(0xFFE24462), null),
         ThemePreset("Purple", Color(0xFFB125EA), null),
         ThemePreset("Purple Blue", Color(0xFF7F52FF), null),
@@ -90,4 +93,17 @@ object BrandThemePresets {
 
     fun findByStoredLong(themeColor: Long): ThemePreset? =
         presets.firstOrNull { it.seed.toThemeLong() == themeColor }
+
+    fun brushForStoredLong(themeColor: Long): Brush {
+        val preset = findByStoredLong(themeColor)
+        return preset?.previewBrush ?: SolidColor(themeColor.toColor())
+    }
+
+    fun seedForStoredLong(themeColor: Long): Color =
+        findByStoredLong(themeColor)?.seed ?: themeColor.toColor()
+
+    fun onTopBarColor(themeColor: Long): Color {
+        val seed = seedForStoredLong(themeColor)
+        return if (seed.luminance() < 0.45f) Color.White else Color.Black
+    }
 }

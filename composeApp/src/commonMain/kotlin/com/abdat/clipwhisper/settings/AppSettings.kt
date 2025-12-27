@@ -6,6 +6,7 @@ data class AppSettings(
     val maxTextSize: Int,
     val ignoreEmptyOrWhitespace: Boolean,
     val historySizeLimit: Int,
-    val themeColor: Long = 0xFF6750A4.toInt().toLong() // Default Material Purple
+    val themeColor: Long = 0xFF6750A4.toInt().toLong(),
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 
 )

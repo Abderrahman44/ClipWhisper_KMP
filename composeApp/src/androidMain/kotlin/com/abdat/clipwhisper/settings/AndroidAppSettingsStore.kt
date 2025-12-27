@@ -26,9 +26,11 @@ class AndroidAppSettingsStore(
             maxTextSize = 64_000,
             ignoreEmptyOrWhitespace = true,
             historySizeLimit = 50,
-            themeColor = 0xFF6750A4.toInt().toLong()
+            themeColor = 0xFF6750A4.toInt().toLong(),
+            themeMode = ThemeMode.SYSTEM
         )
     }
+
 
     private val _settings = MutableStateFlow(load())
     override val settings: StateFlow<AppSettings> = _settings.asStateFlow()
@@ -41,7 +43,11 @@ class AndroidAppSettingsStore(
         val ign = prefs.getBoolean("ignore_empty_ws", defaults.ignoreEmptyOrWhitespace)
         val hist = prefs.getInt("history_limit", defaults.historySizeLimit).coerceIn(0, 10_000)
         val theme = prefs.getLong("theme_color", defaults.themeColor)
-        return AppSettings(name, port, max, ign, hist, theme)    }
+        val modeStr = prefs.getString("theme_mode", null)
+        val mode = modeStr?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() } ?: defaults.themeMode
+
+        return AppSettings(name, port, max, ign, hist, theme, mode)
+    }
 
     private fun persist(s: AppSettings) {
         prefs.edit {
@@ -51,6 +57,7 @@ class AndroidAppSettingsStore(
                 .putBoolean("ignore_empty_ws", s.ignoreEmptyOrWhitespace)
                 .putInt("history_limit", s.historySizeLimit)
                 .putLong("theme_color", s.themeColor)
+                .putString("theme_mode", s.themeMode.name)
         }
     }
 
@@ -120,5 +127,14 @@ class AndroidAppSettingsStore(
             persist(next)
         }
     }
+
+    override suspend fun setThemeMode(mode: ThemeMode) {
+        mutex.withLock {
+            val updated = _settings.value.copy(themeMode = mode)
+            persist(updated)
+            _settings.value = updated
+        }
+    }
+
 
 }
