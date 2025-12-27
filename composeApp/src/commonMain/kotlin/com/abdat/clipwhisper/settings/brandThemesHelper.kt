@@ -84,8 +84,6 @@ object BrandThemePresets {
         ThemePreset("Magenta", Color(0xFFE627F8), null),
         ThemePreset("Red", Color(0xFFFF0007), null),
         ThemePreset("Orange", Color(0xFFFF841B), null),
-        ThemePreset("Royal Blue", Color(0xFF674FEB), null),
-        ThemePreset("Light Purple", Color(0xFFCE67FF), null),
         ThemePreset("Green", Color(0xFF48E155), null),
         ThemePreset("Material Purple", Color(0xFF6200EE), null),
         ThemePreset("Teal", Color(0xFF03DAC6), null),
