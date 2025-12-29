@@ -9,8 +9,11 @@ This project was created specifically for the **KotlinConf / Kotlin Multiplatfor
 
 ## Demo
 
-- **Android demo:** `demo/android-demo.mp4`
-- **Desktop demo:** `demo/desktop-demo.mp4`
+- **Android demo:**
+  https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5
+- **Desktop demo:**
+  https://github.com/user-attachments/assets/6a6b4a8b-3f60-459f-919e-d18f9ebef217
+
 
 > If GitHub doesn’t preview the video directly, download the file from the repo and play it locally.
 
