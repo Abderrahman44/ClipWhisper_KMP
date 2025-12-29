@@ -2,6 +2,8 @@
 .kotlin
 .gradle
 **/build/
+gradle-app.setting
+!gradle-wrapper.jar
 xcuserdata
 !src/**/build/
 local.properties
@@ -17,3 +19,25 @@ captures
 !*.xcworkspace/contents.xcworkspacedata
 **/xcshareddata/WorkspaceSettings.xcsettings
 node_modules/
+
+# Android
+*.apk
+*.ap_
+*.aab
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.ipr
+out/
+
+# Configuration Cache
+.kotlin/
+
+# Database files
+*.db
+*.db-shm
+*.db-wal
+ClipWhisper.db
+ClipWhisper.db-shm
+ClipWhisper.db-wal
