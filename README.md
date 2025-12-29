@@ -10,9 +10,45 @@ This project was created specifically for the **KotlinConf / Kotlin Multiplatfor
 ## Demo
 
 - **Android demo:**
-  https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5
+
+https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 - **Desktop demo:**
-  https://github.com/user-attachments/assets/7e612b28-965d-4d62-b975-dce413e43874
+
+https://github.com/user-attachments/assets/7e612b28-965d-4d62-b975-dce413e43874
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 > If GitHub doesn’t preview the video directly, download the file from the repo and play it locally.
