@@ -1,0 +1,10 @@
+# Abderrahmane (Kotlin Multiplatform Developer)
+I’m Abdat Abderrahmane, a Computer Science student at the Higher School of Computer Science (ESI SBA) in Algeria (2023–2028). I’m focused on building reliable backend and cross-platform applications, with a strong interest in software architecture, clean design, and system integration. I learn quickly and enjoy adopting best practices that improve performance, maintainability, and production safety.
+
+My main languages are Kotlin, Java, Python, and TypeScript. I’ve built Kotlin native and Kotlin Multiplatform applications, and backend services with Spring Boot. I’m comfortable with asynchronous programming using Kotlin Coroutines and Flow, and I aim to write code that is structured, testable, and easy to evolve. In 2025, I participated in the AiQuest Quantum Edition hackathon and my team placed 3rd, strengthening my teamwork and delivery under time constraints.
+
+Professionally, I’ve volunteered as a software developer since September 2025, contributing to backend development with Express. I also completed a full-stack internship where I delivered backend, mobile, and desktop tasks using Spring Boot and Kotlin Multiplatform. These experiences pushed me to be strict about correctness, reliability, and clean lifecycle management.
+
+For this contest, I created ClipWhisper, a Kotlin Multiplatform app for Android and Desktop that synchronizes clipboard text between devices on the same local network. The idea came from a simple friction point: sharing short snippets between phone and computer should be instant and private, without cloud accounts or external servers. ClipWhisper discovers peers on the LAN, uses a pairing and approval flow, and sends clipboard updates only to approved devices. To avoid feedback loops, it applies echo suppression after remote updates. It also stores local clipboard history with configurable limits.
+
+Technologies used include Kotlin Multiplatform, Coroutines + Flow, SQLDelight, kotlinx.serialization, and TCP/UDP networking.
