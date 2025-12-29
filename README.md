@@ -1,124 +1,156 @@
-# ClipWhisper —  Clipboard Sync
+# ClipWhisper — Clipboard Sync
 
-ClipWhisper is a **Kotlin Multiplatform (KMP)** app that syncs **clipboard text** between devices on the same local network.  
-It supports **Android** and **Desktop (JVM)** with **pairing + approval**, **echo suppression** (to prevent loops), and **local clipboard history**.
+## Table of Contents
 
-This project was created specifically for the **KotlinConf / Kotlin Multiplatform Contest**.
+* [Motivation](#motivation)
+* [Demo](#demo)
+* [Features](#features)
+* [How It Works](#how-it-works)
+* [Tech Stack](#tech-stack)
+* [Requirements](#requirements)
+* [Build & Run](#build--run)
+* [Notes](#notes)
+
+ClipWhisper is a **Kotlin Multiplatform (KMP)** application that seamlessly syncs **clipboard text** across devices on the same local network.
+
+It currently supports **Android** and **Desktop (JVM)**, featuring a secure **pairing & approval flow**, **echo suppression** (to prevent sync loops), and a configurable **local clipboard history**.
+
+> 🏆 This project was built for the **KotlinConf / Kotlin Multiplatform Contest**.
+
+---
+
+## Motivation
+
+The idea was inspired by a real use case: a friend used Telegram’s **“Saved Messages”** to move copied text between his phone and PC and needed reliable **clipboard history with pinned items**. Existing tools like **Microsoft Clipboard** didn’t fully meet this need, especially when it came to keeping important text easily accessible.
+
+This motivated me to build a **local clipboard sync app** that works seamlessly across devices and includes **built-in clipboard history management**, without relying on cloud services.
 
 ---
 
 ## Demo
 
-- **Android demo:**
+### Android
 
-https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5
+[https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5](https://github.com/user-attachments/assets/128c7671-8502-4845-b4ac-21dfdf39e4a5)
 
+### Desktop
 
+[https://github.com/user-attachments/assets/7e612b28-965d-4d62-b975-dce413e43874](https://github.com/user-attachments/assets/7e612b28-965d-4d62-b975-dce413e43874)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-- **Desktop demo:**
-
-https://github.com/user-attachments/assets/7e612b28-965d-4d62-b975-dce413e43874
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-> If GitHub doesn’t preview the video directly, download the file from the repo and play it locally.
+> ℹ️ If GitHub doesn’t preview the video inline, download it from the repository and play it locally.
 
 ---
 
 ## Features
 
-- ✅ **Cross-platform**: Android + Desktop (JVM) using Kotlin Multiplatform
-- ✅ **LAN discovery** (UDP broadcast): find nearby devices automatically
-- ✅ **Pairing flow** (TCP): request/approve pairing before syncing
-- ✅ **Clipboard sync** between approved devices
-- ✅ **Echo suppression** to avoid feedback loops when applying remote clipboard updates
-- ✅ **Local clipboard history** stored with SQLDelight and controlled by settings (size/count)
+*  **Cross-platform** — Android + Desktop (JVM) via Kotlin Multiplatform
+* **Automatic LAN discovery** — devices find each other using UDP broadcast
+*  **Secure pairing flow** — explicit request/approval before any data sync
+*  **Clipboard synchronization** — text clipboard shared across approved devices
+* **Echo suppression** — prevents infinite clipboard feedback loops
+* **Local clipboard history** — persisted with SQLDelight and configurable limits
 
 ---
 
-## How it works
+## How It Works
 
-1. **Discovery (UDP)**  
-   Devices broadcast discovery packets and announce themselves on the LAN.
+1. **Discovery (UDP)**
+   Devices periodically broadcast discovery packets on the local network to announce their presence.
 
-2. **Pairing (TCP)**  
-   Pairing requires explicit approval. Only **approved** devices can exchange clipboard text.
+2. **Pairing (TCP)**
+   When a device is discovered, pairing must be explicitly approved. Only approved peers are allowed to exchange data.
 
-3. **Clipboard sync**  
-   When your clipboard changes, the text is sent to approved peers via TCP.
+3. **Clipboard Sync (TCP)**
+   Local clipboard changes are detected and transmitted to paired devices.
 
-4. **Echo suppression**  
-   Remote clipboard changes are applied safely without infinite back-and-forth updates.
+4. **Echo Suppression**
+   Remote clipboard updates are applied safely without re-triggering outbound sync events.
 
-5. **History (SQLDelight)**  
-   Clipboard entries are saved locally and trimmed using user settings (max text size + history size).
+5. **Clipboard History (SQLDelight)**
+   Clipboard entries are stored locally and trimmed based on user-defined limits (maximum text length and history size).
 
 ---
 
-## Tech stack
+## Tech Stack
 
-- **Kotlin Multiplatform**
-- **Kotlin Coroutines + Flow**
-- **SQLDelight** (history storage)
-- **kotlinx.serialization** (protocol packets)
-- **Compose Multiplatform** 
-- **UDP** for discovery + **TCP** for pairing & clipboard transfer
+* **Kotlin Multiplatform**
+* **Kotlin Coroutines & Flow**
+* **Compose Multiplatform**
+* **SQLDelight** — local clipboard history storage
+* **kotlinx.serialization** — network protocol packets
+* **UDP** — device discovery
+* **TCP** — pairing and clipboard data transfer
 
 ---
 
 ## Requirements
 
-- **JDK 17+** (JDK 21 works)
-- **Android Studio + Android SDK** (for Android builds)
-- A local network (same Wi-Fi/LAN) to test multi-device syncing
+* **JDK 17+** (JDK 21 supported)
+* **Android Studio + Android SDK** (for Android builds)
+* Devices connected to the **same local network** (Wi‑Fi or LAN)
 
 ---
 
 ## Build & Run
-> Module used in this repo: `:composeApp`  
-> If a task is missing on your machine, list available tasks with:
+
+> 📦 Main module used in this repository: `:composeApp`
+>
+> If a task appears to be missing, list all available tasks with:
+>
 > ```bash
 > ./gradlew :composeApp:tasks --all
 > ```
 
-### Requirements
-- JDK 17+ (JDK 21 is OK)
-- Android Studio + Android SDK (for Android builds)
+### Android
+
+Install debug build on a connected device or emulator:
+
+```bash
+./gradlew :composeApp:installDebug
+```
+
+Build debug APK only:
+
+```bash
+./gradlew :composeApp:assembleDebug
+```
+
+### Desktop (Run Locally)
+
+```bash
+./gradlew :composeApp:run
+```
+
+### Linux
+
+**Fedora / RPM**
+
+```bash
+./gradlew :composeApp:packageRpm
+```
+
+**Ubuntu / Debian (DEB)**
+
+```bash
+./gradlew :composeApp:packageDeb
+```
+
+### Windows (MSI)
+
+```bash
+./gradlew :composeApp:packageMsi
+```
+
+### macOS (DMG)
+
+```bash
+./gradlew :composeApp:packageDmg
+```
 
 ---
 
-### Android
+## Notes
 
-#### Run Debug on device/emulator
-```bash
-./gradlew :composeApp:installDebug
+* Clipboard syncing currently supports **text only**.
+* All communication happens **locally** — no cloud or external servers involved.
+* Designed as a reference-quality **Kotlin Multiplatform networking + Compose** project.
