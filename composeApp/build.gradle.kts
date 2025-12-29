@@ -154,9 +154,26 @@ compose.desktop {
         mainClass = "com.abdat.clipwhisper.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
+            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb,TargetFormat.Rpm,TargetFormat.Exe)
             packageName = "com.abdat.clipwhisper"
             packageVersion = "1.0.0"
+            modules("java.sql", "java.naming", "java.net.http")
+            linux {
+                packageName = "clipwhisper"
+                shortcut = true
+                iconFile.set(project.file("src/jvmMain/resources/icon.png"))
+                rpmLicenseType = "MIT"
+                debMaintainer = "abderamanabdat@gmail.com"
+            }
+            windows {
+                packageName = "ClipWhisper"
+                dirChooser = true
+                perUserInstall = true
+                menuGroup = "ClipWhisper"
+                upgradeUuid = "85ebee7a-ca5d-4f0b-b44d-ea31ee2d9538"
+                shortcut = true
+                iconFile.set(project.file("src/jvmMain/resources/icon.ico"))
+            }
         }
     }
 }
