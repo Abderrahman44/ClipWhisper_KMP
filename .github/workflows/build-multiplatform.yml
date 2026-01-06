@@ -119,24 +119,11 @@ jobs:
           name: macos-dmg
           path: composeApp/build/compose/binaries/main/dmg/*.dmg
           if-no-files-found: error
-  prepare-android:
-    name: Prepare Android APK
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      
-      - name: Upload Android APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-apk
-          path: composeApp/release/ClipWhisper.apk
-          if-no-files-found: error
 
 
   create-release:
     name: Create Release
-    needs: [build-windows, build-linux, build-macos, prepare-android]
+    needs: [build-windows, build-linux, build-macos]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
@@ -144,10 +131,15 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
 
       - name: Create Release + upload assets
         uses: softprops/action-gh-release@v1
@@ -160,8 +152,9 @@ jobs:
             artifacts/linux-deb/*.deb
             artifacts/linux-rpm/*.rpm
             artifacts/macos-dmg/*.dmg
-            artifacts/android-apk/ClipWhisper.apk
+            composeApp/release/ClipWhisper.apk
           draft: false
           prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
