@@ -126,15 +126,20 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
 
+    permissions:
+      contents: write
+
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Create Release
+      - name: Create Release + upload assets
         uses: softprops/action-gh-release@v1
         with:
+          name: ClipWhisper ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           files: |
             artifacts/windows-msi/*.msi
             artifacts/windows-exe/*.exe
