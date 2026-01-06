@@ -140,8 +140,16 @@ jobs:
           path: artifacts
       - name: Display structure of downloaded files
         run: ls -R artifacts
+      - name: Check if APK exists
+        run: |
+          if [ -f "composeApp/release/ClipWhisper.apk" ]; then
+            echo " APK found"
+            ls -lh composeApp/release/ClipWhisper.apk
+          else
+            echo " APK not found"
+          fi
 
-      - name: Create Release + upload assets
+      - name: Create Release 
         uses: softprops/action-gh-release@v1
         with:
           name: ClipWhisper ${{ github.ref_name }}
@@ -156,5 +164,6 @@ jobs:
           draft: false
           prerelease: false
           generate_release_notes: true
+          fail_on_unmatched_files: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
